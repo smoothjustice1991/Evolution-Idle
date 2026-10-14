@@ -1,0 +1,68 @@
+{
+	"economy": {
+		"baseClickPower": 1,
+		"defaultCostScaling": 1.2,
+		"offlineCapHours": 8,
+		"offlineEfficiency": 0.5,
+		"autosaveSeconds": 15
+	},
+	"eras": [
+		{ "id": 1, "name": "The Beginning", "costMultiplier": 1, "primaryColor": "29E0FF", "secondaryColor": "1BFFB0", "backgroundColor": "050B14" },
+		{ "id": 2, "name": "Life Conquers Land", "costMultiplier": 5, "primaryColor": "5CFF8A", "secondaryColor": "2EC4FF", "backgroundColor": "04110D" },
+		{ "id": 3, "name": "Rise of Humanity", "costMultiplier": 25, "primaryColor": "FFC857", "secondaryColor": "FF8A3D", "backgroundColor": "110B05" },
+		{ "id": 4, "name": "Beyond Humanity", "costMultiplier": 200, "primaryColor": "B86CFF", "secondaryColor": "29E0FF", "backgroundColor": "0A0614" },
+		{ "id": 5, "name": "Transcendence", "costMultiplier": 2000, "primaryColor": "FFE27A", "secondaryColor": "FF6FD8", "backgroundColor": "07030E" }
+	],
+	"stages": [
+		{ "id": 1,  "era": 1, "cost": 0,            "productionBonus": 0,   "art": "cell",       "name": "Primordial Cell",          "description": "A single microscopic cell drifting in a warm primordial sea." },
+		{ "id": 2,  "era": 1, "cost": 250,          "productionBonus": 0,   "art": "cell",       "name": "Replicating Cell",         "description": "The cell learns to copy itself. Division becomes your first engine of growth." },
+		{ "id": 3,  "era": 1, "cost": 1000,         "productionBonus": 0,   "art": "cell",       "name": "Multicellular Organism",   "description": "Cells cooperate, specialise and share the work of staying alive." },
+		{ "id": 4,  "era": 1, "cost": 3000,         "productionBonus": 0,   "art": "aquatic",    "name": "Early Aquatic Life",       "description": "Complex soft-bodied life spreads through the shallow oceans." },
+		{ "id": 5,  "era": 2, "cost": 8000,         "productionBonus": 0.1, "art": "fish",       "name": "Primitive Fish",           "description": "A backbone forms. Era bonus: +10% all production." },
+		{ "id": 6,  "era": 2, "cost": 20000,        "productionBonus": 0,   "art": "amphibian",  "name": "Early Amphibian",          "description": "Fins become limbs as life pulls itself onto the shore." },
+		{ "id": 7,  "era": 2, "cost": 50000,        "productionBonus": 0,   "art": "reptile",    "name": "Primitive Reptile",        "description": "Scaled skin and shelled eggs free life from the water's edge." },
+		{ "id": 8,  "era": 2, "cost": 125000,       "productionBonus": 0,   "art": "mammal",     "name": "Early Mammal",             "description": "Warm blood, fur and careful parenting emerge." },
+		{ "id": 9,  "era": 3, "cost": 300000,       "productionBonus": 0.1, "art": "primate",    "name": "Early Primate",            "description": "Grasping hands and forward-facing eyes. Era bonus: +10% all production." },
+		{ "id": 10, "era": 3, "cost": 750000,       "productionBonus": 0,   "art": "hominin",    "name": "Early Hominin",            "description": "Walking upright frees the hands for something new." },
+		{ "id": 11, "era": 3, "cost": 2000000,      "productionBonus": 0,   "art": "erectus",    "name": "Homo erectus",             "description": "Fire, travel and shaped stone tools mark a major milestone." },
+		{ "id": 12, "era": 3, "cost": 5000000,      "productionBonus": 0,   "art": "sapiens",    "name": "Homo sapiens",             "description": "Language, art and culture accelerate everything." },
+		{ "id": 13, "era": 4, "cost": 15000000,     "productionBonus": 0.1, "art": "enhanced",   "name": "Enhanced Human",           "description": "Biology becomes editable. Era bonus: +10% all production." },
+		{ "id": 14, "era": 4, "cost": 45000000,     "productionBonus": 0,   "art": "cyborg",     "name": "Cybernetic Human",         "description": "Flesh and machine merge into a single nervous system." },
+		{ "id": 15, "era": 4, "cost": 150000000,    "productionBonus": 0,   "art": "digital",    "name": "Digital Consciousness",    "description": "The mind is mapped, copied and run on silicon." },
+		{ "id": 16, "era": 4, "cost": 500000000,    "productionBonus": 0,   "art": "disembodied","name": "Disembodied Intelligence", "description": "Thought no longer needs a body to exist." },
+		{ "id": 17, "era": 5, "cost": 2000000000,   "productionBonus": 0.1, "art": "energy",     "name": "Energy Form",              "description": "Consciousness rides on pure energy. Era bonus: +10% all production." },
+		{ "id": 18, "era": 5, "cost": 10000000000,  "productionBonus": 0,   "art": "stellar",    "name": "Stellar Consciousness",    "description": "Awareness stretches across a star system." },
+		{ "id": 19, "era": 5, "cost": 50000000000,  "productionBonus": 0,   "art": "cosmic",     "name": "Cosmic Entity",            "description": "An intelligence operating at the scale of galaxies." },
+		{ "id": 20, "era": 5, "cost": 250000000000, "productionBonus": 0,   "art": "sphere",     "name": "Pure Energy",              "description": "The journey is complete: a luminous sphere of conscious energy." }
+	],
+	"upgrades": [
+		{ "id": "bio_replicator",      "era": 1, "unlockStage": 1,  "category": "Auto-clicker", "effect": "production", "baseCost": 50,       "amount": 1,         "name": "Bio-Replicator",           "description": "A simple self-copying molecule that harvests EP on its own." },
+		{ "id": "genetic_optimization","era": 1, "unlockStage": 1,  "category": "Click power",  "effect": "click",      "baseCost": 500,      "amount": 1,         "costScaling": 1.5, "name": "Genetic Optimization", "description": "Each click carries more evolutionary weight." },
+		{ "id": "advanced_replicator", "era": 1, "unlockStage": 2,  "category": "Auto-clicker", "effect": "production", "baseCost": 250,      "amount": 5,         "name": "Advanced Replicator",      "description": "Faster, error-correcting replication machinery." },
+		{ "id": "neural_automator",    "era": 1, "unlockStage": 3,  "category": "Auto-clicker", "effect": "production", "baseCost": 1000,     "amount": 20,        "name": "Neural Automator",         "description": "Primitive signalling cells coordinate production." },
+		{ "id": "evolution_multiplier","era": 1, "unlockStage": 3,  "category": "Multiplier",   "effect": "multiplier", "baseCost": 2500,     "amount": 0.25,      "costScaling": 4, "name": "Evolution Multiplier", "description": "Boosts all EP production, manual and automatic." },
+
+		{ "id": "tidal_spawner",       "era": 2, "unlockStage": 5,  "category": "Auto-clicker", "effect": "production", "baseCost": 1200,     "amount": 25,       "name": "Tidal Spawner",            "description": "Spawning grounds that pulse with every tide." },
+		{ "id": "instinct_reflex",     "era": 2, "unlockStage": 5,  "category": "Click power",  "effect": "click",      "baseCost": 1000,     "amount": 5,        "costScaling": 1.5, "name": "Instinct Reflex", "description": "Hard-wired reflexes amplify every click." },
+		{ "id": "adaptive_radiation",  "era": 2, "unlockStage": 6,  "category": "Multiplier",   "effect": "multiplier", "baseCost": 10000,    "amount": 0.25,      "costScaling": 4, "name": "Adaptive Radiation", "description": "Life diversifies into every niche. Boosts all production." },
+		{ "id": "amniotic_incubator",  "era": 2, "unlockStage": 7,  "category": "Auto-clicker", "effect": "production", "baseCost": 6000,     "amount": 120,       "name": "Amniotic Incubator",       "description": "Protected eggs let generations grow anywhere on land." },
+
+		{ "id": "tribal_foragers",     "era": 3, "unlockStage": 9,  "category": "Auto-clicker", "effect": "production", "baseCost": 8000,     "amount": 200,      "name": "Tribal Foragers",          "description": "Bands of foragers gather EP across the savanna." },
+		{ "id": "fire_mastery",        "era": 3, "unlockStage": 9,  "category": "Click power",  "effect": "click",      "baseCost": 4000,     "amount": 40,       "costScaling": 1.5, "name": "Fire Mastery", "description": "Cooked food fuels bigger brains and stronger clicks." },
+		{ "id": "tool_workshop",       "era": 3, "unlockStage": 10, "category": "Auto-clicker", "effect": "production", "baseCost": 20000,    "amount": 500,      "name": "Tool Workshop",            "description": "Shaped stone multiplies what each pair of hands can do." },
+		{ "id": "spoken_language",     "era": 3, "unlockStage": 11, "category": "Multiplier",   "effect": "multiplier", "baseCost": 40000,    "amount": 0.5,       "costScaling": 4, "name": "Spoken Language", "description": "Ideas spread between minds. Boosts all production." },
+		{ "id": "agriculture",         "era": 3, "unlockStage": 12, "category": "Auto-clicker", "effect": "production", "baseCost": 80000,    "amount": 2000,     "name": "Agricultural Revolution",  "description": "Settled farming feeds cities of innovators." },
+
+		{ "id": "gene_forge",          "era": 4, "unlockStage": 13, "category": "Auto-clicker", "effect": "production", "baseCost": 25000,    "amount": 1200,     "name": "Gene Forge",               "description": "Designer genomes compiled on demand." },
+		{ "id": "neural_lace",         "era": 4, "unlockStage": 13, "category": "Click power",  "effect": "click",      "baseCost": 50000,    "amount": 400,      "costScaling": 1.5, "name": "Neural Lace", "description": "A direct brain interface turns intent into EP." },
+		{ "id": "cyber_foundry",       "era": 4, "unlockStage": 14, "category": "Auto-clicker", "effect": "production", "baseCost": 150000,   "amount": 7500,    "name": "Cyber Foundry",            "description": "Self-assembling factories of augmented bodies." },
+		{ "id": "upload_cluster",      "era": 4, "unlockStage": 15, "category": "Auto-clicker", "effect": "production", "baseCost": 500000,   "amount": 25000,   "name": "Mind Upload Cluster",      "description": "Server farms running thousands of digital minds." },
+		{ "id": "recursive_improvement","era": 4,"unlockStage": 16, "category": "Multiplier",   "effect": "multiplier", "baseCost": 500000,   "amount": 0.5,       "costScaling": 4, "name": "Recursive Self-Improvement", "description": "Intelligence that improves itself. Boosts all production." },
+
+		{ "id": "plasma_harvester",    "era": 5, "unlockStage": 17, "category": "Auto-clicker", "effect": "production", "baseCost": 250000,   "amount": 33000,   "name": "Plasma Harvester",         "description": "Draws EP straight from stellar plasma." },
+		{ "id": "quantum_will",        "era": 5, "unlockStage": 17, "category": "Click power",  "effect": "click",      "baseCost": 500000,   "amount": 8000,    "costScaling": 1.5, "name": "Quantum Will", "description": "Each act of will collapses reality in your favour." },
+		{ "id": "dyson_lattice",       "era": 5, "unlockStage": 18, "category": "Auto-clicker", "effect": "production", "baseCost": 2000000,  "amount": 270000,  "name": "Dyson Lattice",            "description": "A web of collectors wrapped around a star." },
+		{ "id": "cosmic_harmony",      "era": 5, "unlockStage": 18, "category": "Multiplier",   "effect": "multiplier", "baseCost": 5000000,  "amount": 1,         "costScaling": 4, "name": "Cosmic Harmony", "description": "All matter resonates with you. Doubles base production per level." },
+		{ "id": "galactic_resonator",  "era": 5, "unlockStage": 19, "category": "Auto-clicker", "effect": "production", "baseCost": 10000000, "amount": 1300000, "name": "Galactic Resonator",       "description": "Entire galaxies hum in a single productive chord." }
+	]
+}
