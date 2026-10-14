@@ -24,7 +24,7 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	bool IsDataValid() const { return bDataValid; }
+	bool HasGameData() const { return bDataValid; }
 	const FString& GetDataError() const { return DataError; }
 
 	const FEvoEconomy& GetEconomy() const { return Economy; }

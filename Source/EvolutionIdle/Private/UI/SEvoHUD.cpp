@@ -88,7 +88,7 @@ SEvoHUD::~SEvoHUD()
 const FEvoEconomy* SEvoHUD::GetEconomy() const
 {
 	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
-	return (Sub && Sub->IsDataValid()) ? &Sub->GetEconomy() : nullptr;
+	return (Sub && Sub->HasGameData()) ? &Sub->GetEconomy() : nullptr;
 }
 
 FLinearColor SEvoHUD::GetPrimary() const
@@ -304,7 +304,7 @@ void SEvoHUD::Construct(const FArguments& InArgs)
 			.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
 			{
 				const UEvolutionGameSubsystem* Sub = Subsystem.Get();
-				return (Sub && !Sub->IsDataValid()) ? EVisibility::Visible : EVisibility::Collapsed;
+				return (Sub && !Sub->HasGameData()) ? EVisibility::Visible : EVisibility::Collapsed;
 			}))
 			[
 				SNew(STextBlock)

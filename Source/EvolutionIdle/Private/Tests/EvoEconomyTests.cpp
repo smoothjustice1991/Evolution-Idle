@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "EvoEconomy.h"
 #include "EvoGameData.h"
+#include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -178,7 +179,7 @@ bool FEvoProductionTest::RunTest(const FString& Parameters)
 	// Bad values are ignored.
 	const double Before = Econ.GetState().CurrentEP;
 	Econ.Earn(-5.0);
-	Econ.Earn(TNumericLimits<double>::Quiet_NaN());
+	Econ.Earn(std::numeric_limits<double>::quiet_NaN());
 	TestEqual(TEXT("Negative/NaN earnings ignored"), Econ.GetState().CurrentEP, Before);
 	return true;
 }

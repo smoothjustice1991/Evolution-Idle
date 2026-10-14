@@ -175,7 +175,7 @@ FReply SEvoHelix::HandleClick(const FGeometry& MyGeometry, const FPointerEvent& 
 	}
 
 	UEvolutionGameSubsystem* Sub = Subsystem.Get();
-	if (!Sub || !Sub->IsDataValid())
+	if (!Sub || !Sub->HasGameData())
 	{
 		return FReply::Handled();
 	}
