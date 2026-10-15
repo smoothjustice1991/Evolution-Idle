@@ -45,6 +45,10 @@ public:
 	bool GetReducedMotion() const { return bReducedMotion; }
 	void SetReducedMotion(bool bEnabled);
 
+	/** Monitor (0-based) the player chose for the game window; -1 = not chosen yet. */
+	int32 GetDisplayMonitor() const { return DisplayMonitor; }
+	void SetDisplayMonitor(int32 MonitorIndex);
+
 	// ---- Offline report (shown once by the HUD) ----
 	double GetPendingOfflineGain() const { return PendingOfflineGain; }
 	double GetPendingOfflineSeconds() const { return PendingOfflineSeconds; }
@@ -69,6 +73,7 @@ private:
 	FTSTicker::FDelegateHandle TickHandle;
 	double AutosaveTimer = 0.0;
 	bool bReducedMotion = false;
+	int32 DisplayMonitor = -1;
 
 	double PendingOfflineGain = 0.0;
 	double PendingOfflineSeconds = 0.0;

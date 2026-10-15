@@ -19,7 +19,8 @@ public class EvolutionIdle : ModuleRules
 			"Slate",
 			"SlateCore",
 			"Json",
-			"JsonUtilities"
+			"JsonUtilities",
+			"ApplicationCore"
 		});
 	}
 }

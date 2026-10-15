@@ -86,6 +86,7 @@ void UEvolutionGameSubsystem::LoadProgress()
 	State.TotalClicks = Save->TotalClicks;
 	Economy.SanitizeState();
 	bReducedMotion = Save->bReducedMotion;
+	DisplayMonitor = Save->DisplayMonitor;
 
 	// Offline earnings: measured from the last save, capped, granted once.
 	// We save immediately afterwards so the same interval can never be claimed again.
@@ -128,6 +129,7 @@ void UEvolutionGameSubsystem::SaveNow()
 	Save->LastSaveUtc = Now;
 	Save->LastOfflineClaimUtc = Now;
 	Save->bReducedMotion = bReducedMotion;
+	Save->DisplayMonitor = DisplayMonitor;
 
 	if (!UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex))
 	{
@@ -207,6 +209,15 @@ void UEvolutionGameSubsystem::SetReducedMotion(bool bEnabled)
 	if (bReducedMotion != bEnabled)
 	{
 		bReducedMotion = bEnabled;
+		SaveNow();
+	}
+}
+
+void UEvolutionGameSubsystem::SetDisplayMonitor(int32 MonitorIndex)
+{
+	if (DisplayMonitor != MonitorIndex)
+	{
+		DisplayMonitor = MonitorIndex;
 		SaveNow();
 	}
 }

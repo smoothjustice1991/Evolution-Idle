@@ -27,4 +27,5 @@ public:
 	UPROPERTY() FDateTime LastOfflineClaimUtc;
 
 	UPROPERTY() bool bReducedMotion = false;
+	UPROPERTY() int32 DisplayMonitor = -1;
 };

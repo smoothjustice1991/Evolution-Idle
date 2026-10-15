@@ -1,6 +1,7 @@
 #include "EvolutionGameMode.h"
 #include "EvolutionGameSubsystem.h"
 #include "UI/SEvoHUD.h"
+#include "EvoDisplaySettings.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -38,6 +39,13 @@ void AEvolutionHUD::BeginPlay()
 
 	SAssignNew(HUDWidget, SEvoHUD).Subsystem(Subsystem);
 	Viewport->AddViewportWidgetContent(HUDWidget.ToSharedRef(), 10);
+
+	// Put the window back on the monitor the player picked last time (packaged game only).
+	if (Subsystem && Subsystem->GetDisplayMonitor() >= 0 && EvoDisplay::IsConfigurable()
+		&& EvoDisplay::GetCurrentMonitorIndex() != Subsystem->GetDisplayMonitor())
+	{
+		EvoDisplay::Apply(EvoDisplay::GetCurrentMode(), EvoDisplay::GetCurrentResolution(), Subsystem->GetDisplayMonitor());
+	}
 }
 
 void AEvolutionHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)

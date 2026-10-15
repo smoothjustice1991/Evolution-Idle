@@ -5,6 +5,7 @@
 #include "Brushes/SlateColorBrush.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/SlateTypes.h"
+#include "GenericPlatform/GenericWindowDefinition.h"
 
 class UEvolutionGameSubsystem;
 class FEvoEconomy;
@@ -41,6 +42,11 @@ private:
 	TSharedRef<SWidget> MakeUpgradeRow(const FString& UpgradeId);
 	void RebuildUpgradeList();
 
+	/** A "Title   <  value  >" row used by the display settings. */
+	TSharedRef<SWidget> MakeCycler(const FText& Title, TAttribute<FText> Value, TFunction<void(int32)> OnStep, TAttribute<bool> Enabled);
+	void RefreshDisplayChoices();
+	void RefreshResolutionList();
+
 	// ---- Event handlers ----
 	void HandleStageChanged(int32 NewStageIndex);
 	void HandleUpgradeBought(const FString& UpgradeId);
@@ -62,6 +68,12 @@ private:
 	int32 BuiltForStageIndex = INDEX_NONE;
 
 	bool bSettingsOpen = false;
+
+	// Display settings being edited (applied with the Apply button).
+	EWindowMode::Type PendingMode = EWindowMode::Windowed;
+	FIntPoint PendingResolution = FIntPoint(1280, 720);
+	int32 PendingMonitor = 0;
+	TArray<FIntPoint> ResolutionChoices;
 	bool bResetArmed = false;
 	float ResetArmSeconds = 0.f;
 

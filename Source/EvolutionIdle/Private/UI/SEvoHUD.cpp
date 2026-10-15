@@ -4,6 +4,8 @@
 #include "UI/EvoFormat.h"
 #include "EvolutionGameSubsystem.h"
 #include "EvoEconomy.h"
+#include "EvoDisplaySettings.h"
+#include "GenericPlatform/GenericApplication.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
@@ -451,6 +453,10 @@ TSharedRef<SWidget> SEvoHUD::BuildTopBar()
 				{
 					bSettingsOpen = !bSettingsOpen;
 					bResetArmed = false;
+					if (bSettingsOpen)
+					{
+						RefreshDisplayChoices();
+					}
 					return FReply::Handled();
 				})
 				[
@@ -1057,7 +1063,7 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 		.Visibility(TAttribute<EVisibility>::CreateLambda([this]() { return bSettingsOpen ? EVisibility::Visible : EVisibility::Collapsed; }))
 		[
 			SNew(SBox)
-			.WidthOverride(420.f)
+			.WidthOverride(460.f)
 			[
 				SNew(SBorder)
 				.BorderImage(&BannerBrush)
@@ -1073,6 +1079,102 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 						.Font(Font("Bold", 18))
 						.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
 					]
+					// ---- Display ----
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 6.f)
+					[
+						Label(LOCTEXT("DisplayHeader", "DISPLAY"), 10, TextMuted, "Bold")
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 4.f)
+					[
+						MakeCycler(LOCTEXT("ModeLabel", "Window mode"),
+							TAttribute<FText>::CreateLambda([this]() { return EvoDisplay::GetModeLabel(PendingMode); }),
+							[this](int32 Step)
+							{
+								static const EWindowMode::Type Modes[] = { EWindowMode::Windowed, EWindowMode::WindowedFullscreen, EWindowMode::Fullscreen };
+								int32 Index = 0;
+								for (int32 M = 0; M < 3; ++M) { if (Modes[M] == PendingMode) { Index = M; } }
+								PendingMode = Modes[(Index + Step + 3) % 3];
+								RefreshResolutionList();
+							},
+							TAttribute<bool>(true))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 4.f)
+					[
+						MakeCycler(LOCTEXT("ResLabel", "Resolution"),
+							TAttribute<FText>::CreateLambda([this]()
+							{
+								if (PendingMode == EWindowMode::WindowedFullscreen)
+								{
+									return LOCTEXT("NativeRes", "Monitor size");
+								}
+								return FText::FromString(FString::Printf(TEXT("%d %s %d"), PendingResolution.X, Times, PendingResolution.Y));
+							}),
+							[this](int32 Step)
+							{
+								if (ResolutionChoices.Num() == 0) { return; }
+								int32 Index = ResolutionChoices.IndexOfByKey(PendingResolution);
+								Index = (Index == INDEX_NONE) ? ResolutionChoices.Num() - 1 : (Index + Step + ResolutionChoices.Num()) % ResolutionChoices.Num();
+								PendingResolution = ResolutionChoices[Index];
+							},
+							TAttribute<bool>::CreateLambda([this]() { return PendingMode != EWindowMode::WindowedFullscreen; }))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 8.f)
+					[
+						MakeCycler(LOCTEXT("MonitorLabel", "Monitor"),
+							TAttribute<FText>::CreateLambda([this]() { return FText::FromString(EvoDisplay::GetMonitorLabel(PendingMonitor)); }),
+							[this](int32 Step)
+							{
+								TArray<FMonitorInfo> Monitors;
+								EvoDisplay::GetMonitors(Monitors);
+								if (Monitors.Num() > 0)
+								{
+									PendingMonitor = (PendingMonitor + Step + Monitors.Num()) % Monitors.Num();
+								}
+							},
+							TAttribute<bool>(true))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 4.f)
+					[
+						SNew(SButton)
+						.ButtonStyle(&GhostButtonStyle)
+						.HAlign(HAlign_Center)
+						.IsEnabled(TAttribute<bool>::CreateLambda([]() { return EvoDisplay::IsConfigurable(); }))
+						.OnClicked_Lambda([this]()
+						{
+							EvoDisplay::Apply(PendingMode, PendingResolution, PendingMonitor);
+							if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+							{
+								Sub->SetDisplayMonitor(PendingMonitor);
+							}
+							RefreshDisplayChoices();
+							return FReply::Handled();
+						})
+						[
+							Label(LOCTEXT("ApplyDisplay", "Apply display settings"), 13, TextMain, "Bold")
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 14.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Italic", 10))
+						.AutoWrapText(true)
+						.ColorAndOpacity(FSlateColor(TextMuted))
+						.Visibility(TAttribute<EVisibility>::CreateLambda([]() { return EvoDisplay::IsConfigurable() ? EVisibility::Collapsed : EVisibility::Visible; }))
+						.Text(LOCTEXT("DisplayEditorNote", "Display settings apply in the packaged game. In the editor, test them with Play > Standalone Game."))
+					]
+					// ---- Gameplay ----
 					+ SVerticalBox::Slot()
 					.AutoHeight()
 					.Padding(0.f, 0.f, 0.f, 16.f)
@@ -1202,6 +1304,81 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 // ---------------------------------------------------------------------------
 // Upgrade list
 // ---------------------------------------------------------------------------
+
+TSharedRef<SWidget> SEvoHUD::MakeCycler(const FText& Title, TAttribute<FText> Value, TFunction<void(int32)> OnStep, TAttribute<bool> Enabled)
+{
+	auto StepButton = [this, OnStep, Enabled](const FText& Glyph, int32 Step) -> TSharedRef<SWidget>
+	{
+		return SNew(SButton)
+			.ButtonStyle(&GhostButtonStyle)
+			.IsEnabled(Enabled)
+			.OnClicked_Lambda([OnStep, Step]()
+			{
+				OnStep(Step);
+				return FReply::Handled();
+			})
+			[
+				Label(Glyph, 13, TextMain, "Bold")
+			];
+	};
+
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+		.FillWidth(0.42f)
+		.VAlign(VAlign_Center)
+		[
+			Label(Title, 13, TextMain)
+		]
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		[
+			StepButton(FText::FromString(TEXT("<")), -1)
+		]
+		+ SHorizontalBox::Slot()
+		.FillWidth(0.58f)
+		.VAlign(VAlign_Center)
+		.HAlign(HAlign_Center)
+		.Padding(6.f, 0.f)
+		[
+			SNew(STextBlock)
+			.Font(Font("Bold", 12))
+			.Text(Value)
+			.ColorAndOpacity_Lambda([this, Enabled]() { return FSlateColor(Enabled.Get() ? GetPrimary() : TextMuted); })
+		]
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		[
+			StepButton(FText::FromString(TEXT(">")), 1)
+		];
+}
+
+void SEvoHUD::RefreshDisplayChoices()
+{
+	PendingMode = EvoDisplay::GetCurrentMode();
+	PendingResolution = EvoDisplay::GetCurrentResolution();
+	PendingMonitor = EvoDisplay::GetCurrentMonitorIndex();
+	RefreshResolutionList();
+}
+
+void SEvoHUD::RefreshResolutionList()
+{
+	EvoDisplay::GetResolutions(PendingMode, ResolutionChoices);
+	if (ResolutionChoices.Num() > 0 && !ResolutionChoices.Contains(PendingResolution))
+	{
+		// Pick the largest offered size that is not bigger than the current choice.
+		FIntPoint Best = ResolutionChoices[0];
+		for (const FIntPoint& Choice : ResolutionChoices)
+		{
+			if (Choice.X <= PendingResolution.X && Choice.Y <= PendingResolution.Y)
+			{
+				Best = Choice;
+			}
+		}
+		PendingResolution = Best;
+	}
+}
 
 void SEvoHUD::RebuildUpgradeList()
 {
