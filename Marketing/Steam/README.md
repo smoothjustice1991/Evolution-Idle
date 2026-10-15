@@ -24,12 +24,14 @@ pixels, flattened onto the art's deep navy). The library logo keeps its transpar
 1280 x 733 file was trimmed of empty margin and scaled to 1189 x 720, because Steam's limit is
 1280 wide and/or 720 tall and 733 would exceed the height.
 
+Achievement icons (64 × 64, achieved + unachieved for all 32) are in `Achievements/`; see
+`Docs/Steam_Achievements.md` for uploading them.
+
 ## Still needed before release
 
 | Asset | Size | Notes |
 |---|---|---|
 | Screenshots | at least 1920 × 1080, 16:9 | At least 5 for the store page |
 | Page background | 1438 × 810 | Optional, subtle and dark |
-| Achievement icons | 64 × 64, two per achievement (achieved + unachieved) | 32 achievements, see `Docs/Steam_Achievements.md` |
 
 Sizes from the Steamworks documentation: https://partner.steamgames.com/doc/store/assets

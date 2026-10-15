@@ -9,7 +9,10 @@ with progress.
 
 1. In Steamworks, open the app's **Stats & Achievements > Achievements** page.
 2. Add one achievement per row below. **API Name** must match exactly (it is case-sensitive).
-3. Upload two 64 x 64 icons per achievement: a colour "achieved" icon and a grey "unachieved" icon.
+3. Upload the two icons for each achievement from `Marketing/Steam/Achievements/`:
+   `<API name>_achieved.jpg` and `<API name>_unachieved.jpg` (64 x 64). `_preview.png` shows them all;
+   256 px masters are in `masters/`. Regenerate them with `Tools/make_achievement_icons.py` after
+   changing achievements.
 4. **Publish** the changes (Steamworks > Publish). Unpublished achievements are ignored by Steam.
 5. In `Config/DefaultEngine.ini`, replace `SteamDevAppId=480` with the game's App ID, and set
    `ReleaseAppId` to the same number before the release build.
