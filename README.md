@@ -21,6 +21,8 @@ without recompiling.
 5. In the editor, press **Play**. The project starts on the engine's empty `Entry` map and the C++
    game mode puts the interface on screen; no level setup is needed.
 
+To compile without opening the editor (editor closed), double-click `BuildEditor.bat`; the output goes to `Saved/BuildLog.txt`.
+
 To ship a standalone build: **Platforms > Windows > Package Project**. `Content/Data` is packaged
 automatically (see `Config/DefaultGame.ini`).
 
