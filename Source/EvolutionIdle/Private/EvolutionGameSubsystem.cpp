@@ -442,6 +442,27 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		return;
 	}
 
+	const double Now = FPlatformTime::Seconds();
+
+	// Safety net: if the engine stopped the music anyway (e.g. an audio device change), start a fresh one.
+	if (IsValid(MusicAudio) && bMusicStarted && !MusicAudio->IsPlaying())
+	{
+		if (MusicStoppedSince <= 0.0)
+		{
+			MusicStoppedSince = Now;
+		}
+		else if (Now - MusicStoppedSince > 1.0)
+		{
+			UE_LOG(LogEvolution, Log, TEXT("Music stopped unexpectedly; restarting it."));
+			MusicAudio->Stop();
+			MusicAudio = nullptr;
+		}
+	}
+	else
+	{
+		MusicStoppedSince = 0.0;
+	}
+
 	if (!IsValid(MusicAudio) || MusicAudio->GetWorld() != World)
 	{
 		// A procedural wave must only ever feed one playing sound, so each new audio component gets its own wave.
@@ -455,17 +476,22 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		MusicWave->Duration = INDEFINITELY_LOOPING_DURATION;
 		MusicWave->SoundGroup = SOUNDGROUP_Default;
 		MusicWave->bLooping = false;
+		// Keep playing while silent (fade-in start, or the Music slider at Off) instead of being culled.
+		MusicWave->VirtualizationMode = EVirtualizationMode::PlayWhenSilent;
 
 		MusicAudio = UGameplayStatics::CreateSound2D(World, MusicWave, 1.f, 1.f, 0.f, nullptr, true, false);
 		MusicReadPos = 0;
 		bMusicStarted = false;
+		MusicStoppedSince = 0.0;
 		if (!MusicAudio)
 		{
 			return;
 		}
 	}
 
-	MusicAudio->SetVolumeMultiplier(FMath::Max(Gain, 0.0001f));
+	// Our own 2-second fade-in (the engine's FadeIn starts at true silence, which can get the sound culled).
+	const float Fade = bMusicStarted ? FMath::Clamp(static_cast<float>((Now - MusicStartTime) / 2.0), 0.02f, 1.f) : 0.02f;
+	MusicAudio->SetVolumeMultiplier(FMath::Max(Gain * Fade, 0.001f));
 
 	// Keep a few seconds queued, wrapping to the start so the track loops without a gap.
 	const int32 FrameBytes = MusicChannels * 2;
@@ -489,7 +515,9 @@ void UEvolutionGameSubsystem::UpdateMusic()
 	if (!bMusicStarted)
 	{
 		bMusicStarted = true;
-		MusicAudio->FadeIn(2.0f, 1.f);
+		MusicStartTime = Now;
+		MusicAudio->Play();
+		UE_LOG(LogEvolution, Log, TEXT("Music started."));
 	}
 }
 

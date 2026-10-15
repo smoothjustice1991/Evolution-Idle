@@ -142,6 +142,8 @@ private:
 	int32 MusicChannels = 0;
 	int64 MusicReadPos = 0;
 	bool bMusicStarted = false;
+	double MusicStartTime = 0.0;
+	double MusicStoppedSince = 0.0;
 
 	UPROPERTY()
 	TObjectPtr<USoundWaveProcedural> MusicWave;
