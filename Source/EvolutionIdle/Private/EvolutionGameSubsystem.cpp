@@ -9,6 +9,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWaveProcedural.h"
 
@@ -23,6 +24,69 @@ namespace
 
 	/** How often click and production achievements are re-checked. */
 	constexpr double AchievementCheckSeconds = 0.25;
+
+	/** Music is queued this many seconds ahead of playback, in chunks of MusicChunkSeconds. */
+	constexpr double MusicBufferSeconds = 3.0;
+	constexpr double MusicChunkSeconds = 1.0;
+
+	/**
+	 * Minimal RIFF/WAVE reader: needs a 16-bit PCM "fmt " chunk and a "data" chunk.
+	 * Appends the sample data to OutPCM and returns the format, or false if the file is not 16-bit PCM.
+	 */
+	bool ReadPcmWav(const FString& Path, TArray<uint8>& OutPCM, int32& OutSampleRate, int32& OutChannels)
+	{
+		TArray<uint8> File;
+		if (!FFileHelper::LoadFileToArray(File, *Path))
+		{
+			return false;
+		}
+		auto ReadU16 = [&File](int32 Offset) { return static_cast<uint16>(File[Offset] | (File[Offset + 1] << 8)); };
+		auto ReadU32 = [&File](int32 Offset)
+		{
+			return static_cast<uint32>(File[Offset]) | (static_cast<uint32>(File[Offset + 1]) << 8)
+				| (static_cast<uint32>(File[Offset + 2]) << 16) | (static_cast<uint32>(File[Offset + 3]) << 24);
+		};
+		if (File.Num() < 12 || FMemory::Memcmp(File.GetData(), "RIFF", 4) != 0 || FMemory::Memcmp(File.GetData() + 8, "WAVE", 4) != 0)
+		{
+			return false;
+		}
+		int32 Offset = 12;
+		uint16 Format = 0, Channels = 0, Bits = 0;
+		uint32 Rate = 0;
+		int32 DataStart = -1;
+		int32 DataSize = 0;
+		while (Offset + 8 <= File.Num())
+		{
+			const uint32 ChunkSize = ReadU32(Offset + 4);
+			const int32 Body = Offset + 8;
+			if (Body + static_cast<int64>(ChunkSize) > File.Num())
+			{
+				break;
+			}
+			if (FMemory::Memcmp(File.GetData() + Offset, "fmt ", 4) == 0 && ChunkSize >= 16)
+			{
+				Format = ReadU16(Body);
+				Channels = ReadU16(Body + 2);
+				Rate = ReadU32(Body + 4);
+				Bits = ReadU16(Body + 14);
+			}
+			else if (FMemory::Memcmp(File.GetData() + Offset, "data", 4) == 0)
+			{
+				DataStart = Body;
+				DataSize = static_cast<int32>(ChunkSize);
+			}
+			Offset = Body + static_cast<int32>(ChunkSize) + (ChunkSize & 1);
+		}
+		if (Format != 1 || Bits != 16 || Channels == 0 || Rate == 0 || DataStart < 0 || DataSize <= 0)
+		{
+			return false;
+		}
+		const int32 FrameBytes = Channels * 2;
+		OutPCM.Append(File.GetData() + DataStart, DataSize - DataSize % FrameBytes);
+		OutSampleRate = static_cast<int32>(Rate);
+		OutChannels = Channels;
+		return true;
+	}
 }
 
 void UEvolutionGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -102,7 +166,9 @@ void UEvolutionGameSubsystem::LoadProgress()
 	Economy.SanitizeState();
 	bReducedMotion = Save->bReducedMotion;
 	DisplayMonitor = Save->DisplayMonitor;
-	bSoundEnabled = Save->bSoundEnabled;
+	MasterVolume = FMath::Clamp(Save->MasterVolume, 0.f, 1.f);
+	MusicVolume = FMath::Clamp(Save->MusicVolume, 0.f, 1.f);
+	EffectsVolume = Save->bSoundEnabled ? FMath::Clamp(Save->EffectsVolume, 0.f, 1.f) : 0.f;
 	UnlockedAchievements = Save->UnlockedAchievements;
 	LongestOfflineSeconds = FMath::IsFinite(Save->LongestOfflineSeconds) ? FMath::Max(0.0, Save->LongestOfflineSeconds) : 0.0;
 
@@ -151,7 +217,10 @@ void UEvolutionGameSubsystem::SaveNow()
 	Save->LastOfflineClaimUtc = Now;
 	Save->bReducedMotion = bReducedMotion;
 	Save->DisplayMonitor = DisplayMonitor;
-	Save->bSoundEnabled = bSoundEnabled;
+	Save->bSoundEnabled = EffectsVolume > 0.f;
+	Save->MasterVolume = MasterVolume;
+	Save->MusicVolume = MusicVolume;
+	Save->EffectsVolume = EffectsVolume;
 	Save->UnlockedAchievements = UnlockedAchievements;
 	Save->LongestOfflineSeconds = LongestOfflineSeconds;
 
@@ -183,6 +252,8 @@ bool UEvolutionGameSubsystem::TickEconomy(float DeltaTime)
 	{
 		Steam->Tick(DeltaTime);
 	}
+
+	UpdateMusic();
 
 	AutosaveTimer += Seconds;
 	if (AutosaveTimer >= Data.Economy.AutosaveSeconds)
@@ -288,78 +359,139 @@ void UEvolutionGameSubsystem::SetDisplayMonitor(int32 MonitorIndex)
 	}
 }
 
-void UEvolutionGameSubsystem::SetSoundEnabled(bool bEnabled)
+void UEvolutionGameSubsystem::SetMasterVolume(float Value)
 {
-	if (bSoundEnabled != bEnabled)
+	MasterVolume = FMath::Clamp(Value, 0.f, 1.f);
+	if (EvolveAudio)
 	{
-		bSoundEnabled = bEnabled;
-		if (!bEnabled && EvolveAudio)
-		{
-			EvolveAudio->Stop();
-		}
-		SaveNow();
+		EvolveAudio->SetVolumeMultiplier(SliderToGain(MasterVolume) * SliderToGain(EffectsVolume));
+	}
+	UpdateMusic();
+}
+
+void UEvolutionGameSubsystem::SetMusicVolume(float Value)
+{
+	MusicVolume = FMath::Clamp(Value, 0.f, 1.f);
+	UpdateMusic();
+}
+
+void UEvolutionGameSubsystem::SetEffectsVolume(float Value)
+{
+	EffectsVolume = FMath::Clamp(Value, 0.f, 1.f);
+	if (EvolveAudio)
+	{
+		EvolveAudio->SetVolumeMultiplier(SliderToGain(MasterVolume) * SliderToGain(EffectsVolume));
 	}
 }
 
 void UEvolutionGameSubsystem::LoadSounds()
 {
-	const FString Path = FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Audio"), TEXT("evolve.wav"));
-	TArray<uint8> File;
-	if (!FFileHelper::LoadFileToArray(File, *Path))
+	const FString AudioDir = FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Audio"));
+
+	const FString EvolvePath = FPaths::Combine(AudioDir, TEXT("evolve.wav"));
+	if (!ReadPcmWav(EvolvePath, EvolvePCM, EvolveSampleRate, EvolveChannels))
 	{
-		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound not found at %s"), *Path);
+		EvolvePCM.Reset();
+		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound missing or not 16-bit PCM WAV: %s"), *EvolvePath);
+	}
+
+	// Music: every .wav in Audio/Music, in name order, played back to back. All parts must share one format.
+	const FString MusicDir = FPaths::Combine(AudioDir, TEXT("Music"));
+	TArray<FString> Files;
+	IFileManager::Get().FindFiles(Files, *FPaths::Combine(MusicDir, TEXT("*.wav")), true, false);
+	Files.Sort();
+	for (const FString& Name : Files)
+	{
+		TArray<uint8> Part;
+		int32 Rate = 0;
+		int32 Channels = 0;
+		const FString Path = FPaths::Combine(MusicDir, Name);
+		if (!ReadPcmWav(Path, Part, Rate, Channels))
+		{
+			UE_LOG(LogEvolution, Warning, TEXT("Music file is not 16-bit PCM WAV, skipped: %s"), *Path);
+			continue;
+		}
+		if (MusicPCM.Num() > 0 && (Rate != MusicSampleRate || Channels != MusicChannels))
+		{
+			UE_LOG(LogEvolution, Warning, TEXT("Music file %s has a different format (%d Hz, %d ch) from the first track; skipped."), *Name, Rate, Channels);
+			continue;
+		}
+		MusicSampleRate = Rate;
+		MusicChannels = Channels;
+		MusicPCM.Append(Part);
+	}
+	if (MusicPCM.Num() > 0)
+	{
+		UE_LOG(LogEvolution, Log, TEXT("Loaded %.0f s of music from %d file(s)."),
+			static_cast<double>(MusicPCM.Num()) / (MusicSampleRate * MusicChannels * 2), Files.Num());
+	}
+}
+
+void UEvolutionGameSubsystem::UpdateMusic()
+{
+	if (MusicPCM.Num() == 0)
+	{
+		return;
+	}
+	const float Gain = SliderToGain(MasterVolume) * SliderToGain(MusicVolume);
+
+	UGameInstance* GameInstance = GetGameInstance();
+	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
+	if (!World)
+	{
 		return;
 	}
 
-	// Minimal RIFF/WAVE reader: needs a 16-bit PCM "fmt " chunk and a "data" chunk.
-	auto ReadU16 = [&File](int32 Offset) { return static_cast<uint16>(File[Offset] | (File[Offset + 1] << 8)); };
-	auto ReadU32 = [&File](int32 Offset)
+	if (!MusicWave)
 	{
-		return static_cast<uint32>(File[Offset]) | (static_cast<uint32>(File[Offset + 1]) << 8)
-			| (static_cast<uint32>(File[Offset + 2]) << 16) | (static_cast<uint32>(File[Offset + 3]) << 24);
-	};
-	if (File.Num() < 12 || FMemory::Memcmp(File.GetData(), "RIFF", 4) != 0 || FMemory::Memcmp(File.GetData() + 8, "WAVE", 4) != 0)
-	{
-		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound is not a WAV file"));
-		return;
+		MusicWave = NewObject<USoundWaveProcedural>(this);
+		MusicWave->SetSampleRate(MusicSampleRate);
+		MusicWave->NumChannels = MusicChannels;
+		MusicWave->Duration = INDEFINITELY_LOOPING_DURATION;
+		MusicWave->SoundGroup = SOUNDGROUP_Music;
+		MusicWave->bLooping = false;
 	}
-	int32 Offset = 12;
-	uint16 Format = 0, Channels = 0, Bits = 0;
-	uint32 Rate = 0;
-	while (Offset + 8 <= File.Num())
+
+	if (!MusicAudio || MusicAudio->GetWorld() != World)
 	{
-		const uint32 ChunkSize = ReadU32(Offset + 4);
-		const int32 Body = Offset + 8;
-		if (Body + static_cast<int64>(ChunkSize) > File.Num())
+		MusicAudio = UGameplayStatics::CreateSound2D(World, MusicWave, 1.f, 1.f, 0.f, nullptr, true, false);
+		if (!MusicAudio)
 		{
-			break;
+			return;
 		}
-		if (FMemory::Memcmp(File.GetData() + Offset, "fmt ", 4) == 0 && ChunkSize >= 16)
-		{
-			Format = ReadU16(Body);
-			Channels = ReadU16(Body + 2);
-			Rate = ReadU32(Body + 4);
-			Bits = ReadU16(Body + 14);
-		}
-		else if (FMemory::Memcmp(File.GetData() + Offset, "data", 4) == 0)
-		{
-			EvolvePCM.Append(File.GetData() + Body, static_cast<int32>(ChunkSize));
-		}
-		Offset = Body + static_cast<int32>(ChunkSize) + (ChunkSize & 1);
+		MusicWave->ResetAudio();
+		MusicReadPos = 0;
 	}
-	if (Format != 1 || Bits != 16 || Channels == 0 || Rate == 0 || EvolvePCM.Num() == 0)
+
+	MusicAudio->SetVolumeMultiplier(FMath::Max(Gain, 0.0001f));
+
+	// Keep a few seconds queued, wrapping to the start so the track loops without a gap.
+	const int32 FrameBytes = MusicChannels * 2;
+	const int32 BufferBytes = static_cast<int32>(MusicBufferSeconds * MusicSampleRate) * FrameBytes;
+	const int32 ChunkBytes = static_cast<int32>(MusicChunkSeconds * MusicSampleRate) * FrameBytes;
+	int32 Guard = 8;
+	while (MusicWave->GetAvailableAudioByteCount() < BufferBytes && Guard-- > 0)
 	{
-		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound must be 16-bit PCM WAV"));
-		EvolvePCM.Reset();
-		return;
+		const int64 Remaining = MusicPCM.Num() - MusicReadPos;
+		const int32 Bytes = static_cast<int32>(FMath::Min<int64>(ChunkBytes, Remaining));
+		MusicWave->QueueAudio(MusicPCM.GetData() + MusicReadPos, Bytes);
+		MusicReadPos += Bytes;
+		if (MusicReadPos >= MusicPCM.Num())
+		{
+			MusicReadPos = 0;
+		}
 	}
-	EvolveSampleRate = static_cast<int32>(Rate);
-	EvolveChannels = Channels;
+
+	if (!MusicAudio->IsPlaying())
+	{
+		MusicAudio->FadeIn(2.0f, 1.f);
+	}
 }
 
 void UEvolutionGameSubsystem::PlayEvolveSound()
 {
-	if (!bSoundEnabled || EvolvePCM.Num() == 0)
+	const float Gain = SliderToGain(MasterVolume) * SliderToGain(EffectsVolume);
+	if (Gain <= 0.f || EvolvePCM.Num() == 0)
 	{
 		return;
 	}
@@ -389,6 +521,7 @@ void UEvolutionGameSubsystem::PlayEvolveSound()
 	}
 
 	EvolveAudio->Stop();
+	EvolveAudio->SetVolumeMultiplier(Gain);
 	EvolveWave->ResetAudio();
 	EvolveWave->QueueAudio(EvolvePCM.GetData(), EvolvePCM.Num());
 	EvolveAudio->Play();

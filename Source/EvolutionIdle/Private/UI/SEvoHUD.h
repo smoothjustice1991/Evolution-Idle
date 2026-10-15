@@ -51,6 +51,11 @@ private:
 	/** A "Title   <  value  >" row used by the display settings. */
 	TSharedRef<SWidget> MakeCycler(const FText& Title, TAttribute<FText> Value, TFunction<void(int32)> OnStep, TAttribute<bool> Enabled);
 	void RefreshDisplayChoices();
+
+	/** "Title  [slider]  60%" row for one audio level; changes apply live and save on release. */
+	TSharedRef<SWidget> MakeVolumeSlider(const FText& Title,
+		TFunction<float(const UEvolutionGameSubsystem&)> GetValue,
+		TFunction<void(UEvolutionGameSubsystem&, float)> SetValue);
 	void RefreshResolutionList();
 
 	// ---- Event handlers ----

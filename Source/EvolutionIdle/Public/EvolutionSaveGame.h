@@ -28,7 +28,12 @@ public:
 
 	UPROPERTY() bool bReducedMotion = false;
 	UPROPERTY() int32 DisplayMonitor = -1;
+	/** Old on/off setting for sound effects, kept so older saves load with effects muted if they were off. */
 	UPROPERTY() bool bSoundEnabled = true;
+
+	UPROPERTY() float MasterVolume = 1.f;
+	UPROPERTY() float MusicVolume = 0.6f;
+	UPROPERTY() float EffectsVolume = 1.f;
 
 	/** Achievement id -> UTC unlock time. Kept when progress is reset. */
 	UPROPERTY() TMap<FString, FDateTime> UnlockedAchievements;

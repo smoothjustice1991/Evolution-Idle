@@ -19,6 +19,7 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SSlider.h"
 #include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SNullWidget.h"
 #include "Algo/StableSort.h"
@@ -1225,10 +1226,41 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 						.Visibility(TAttribute<EVisibility>::CreateLambda([]() { return EvoDisplay::IsConfigurable() ? EVisibility::Collapsed : EVisibility::Visible; }))
 						.Text(LOCTEXT("DisplayEditorNote", "Display settings apply in the packaged game. In the editor, test them with Play > Standalone Game."))
 					]
+					// ---- Audio ----
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 6.f)
+					[
+						Label(LOCTEXT("AudioHeader", "AUDIO"), 10, TextMuted, "Bold")
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 4.f)
+					[
+						MakeVolumeSlider(LOCTEXT("MasterVolume", "Master volume"),
+							[](const UEvolutionGameSubsystem& Sub) { return Sub.GetMasterVolume(); },
+							[](UEvolutionGameSubsystem& Sub, float Value) { Sub.SetMasterVolume(Value); })
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 4.f)
+					[
+						MakeVolumeSlider(LOCTEXT("MusicVolume", "Music"),
+							[](const UEvolutionGameSubsystem& Sub) { return Sub.GetMusicVolume(); },
+							[](UEvolutionGameSubsystem& Sub, float Value) { Sub.SetMusicVolume(Value); })
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 14.f)
+					[
+						MakeVolumeSlider(LOCTEXT("EffectsVolume", "Evolution chime"),
+							[](const UEvolutionGameSubsystem& Sub) { return Sub.GetEffectsVolume(); },
+							[](UEvolutionGameSubsystem& Sub, float Value) { Sub.SetEffectsVolume(Value); })
+					]
 					// ---- Gameplay ----
 					+ SVerticalBox::Slot()
 					.AutoHeight()
-					.Padding(0.f, 0.f, 0.f, 8.f)
+					.Padding(0.f, 0.f, 0.f, 16.f)
 					[
 						SNew(SCheckBox)
 						.IsChecked_Lambda([this]()
@@ -1248,31 +1280,6 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 							.Padding(FMargin(8.f, 0.f, 0.f, 0.f))
 							[
 								Label(LOCTEXT("ReducedMotion", "Reduce motion (slower animation, no particles)"), 13, TextMain)
-							]
-						]
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.f, 0.f, 0.f, 16.f)
-					[
-						SNew(SCheckBox)
-						.IsChecked_Lambda([this]()
-						{
-							const UEvolutionGameSubsystem* Sub = Subsystem.Get();
-							return (!Sub || Sub->GetSoundEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-						})
-						.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
-						{
-							if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
-							{
-								Sub->SetSoundEnabled(NewState == ECheckBoxState::Checked);
-							}
-						})
-						[
-							SNew(SBox)
-							.Padding(FMargin(8.f, 0.f, 0.f, 0.f))
-							[
-								Label(LOCTEXT("SoundEffects", "Sound effects"), 13, TextMain)
 							]
 						]
 					]
@@ -1427,6 +1434,67 @@ TSharedRef<SWidget> SEvoHUD::MakeCycler(const FText& Title, TAttribute<FText> Va
 		.VAlign(VAlign_Center)
 		[
 			StepButton(FText::FromString(TEXT(">")), 1)
+		];
+}
+
+TSharedRef<SWidget> SEvoHUD::MakeVolumeSlider(const FText& Title,
+	TFunction<float(const UEvolutionGameSubsystem&)> GetValue,
+	TFunction<void(UEvolutionGameSubsystem&, float)> SetValue)
+{
+	auto Read = [this, GetValue]()
+	{
+		const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+		return Sub ? GetValue(*Sub) : 0.f;
+	};
+
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+		.FillWidth(0.42f)
+		.VAlign(VAlign_Center)
+		[
+			Label(Title, 13, TextMain)
+		]
+		+ SHorizontalBox::Slot()
+		.FillWidth(0.46f)
+		.VAlign(VAlign_Center)
+		.Padding(4.f, 0.f)
+		[
+			SNew(SSlider)
+			.MinValue(0.f)
+			.MaxValue(1.f)
+			.StepSize(0.05f)
+			.Value_Lambda(Read)
+			.SliderBarColor(FSlateColor(FLinearColor(0.12f, 0.2f, 0.28f, 1.f)))
+			.SliderHandleColor_Lambda([this]() { return FSlateColor(GetPrimary()); })
+			.OnValueChanged_Lambda([this, SetValue](float NewValue)
+			{
+				if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+				{
+					SetValue(*Sub, NewValue);
+				}
+			})
+			.OnMouseCaptureEnd_Lambda([this]()
+			{
+				// Save once the player lets go, not on every step of the drag.
+				if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+				{
+					Sub->SaveNow();
+				}
+			})
+		]
+		+ SHorizontalBox::Slot()
+		.FillWidth(0.12f)
+		.VAlign(VAlign_Center)
+		.HAlign(HAlign_Right)
+		[
+			SNew(STextBlock)
+			.Font(Font("Bold", 12))
+			.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+			.Text_Lambda([Read]()
+			{
+				const float Value = Read();
+				return Value <= 0.f ? LOCTEXT("Muted", "Off") : FText::FromString(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Value * 100.f)));
+			})
 		];
 }
 

@@ -52,8 +52,13 @@ public:
 	bool GetReducedMotion() const { return bReducedMotion; }
 	void SetReducedMotion(bool bEnabled);
 
-	bool GetSoundEnabled() const { return bSoundEnabled; }
-	void SetSoundEnabled(bool bEnabled);
+	// Audio levels, 0..1 as shown on the settings sliders. Changes apply immediately; call SaveNow() to persist.
+	float GetMasterVolume() const { return MasterVolume; }
+	float GetMusicVolume() const { return MusicVolume; }
+	float GetEffectsVolume() const { return EffectsVolume; }
+	void SetMasterVolume(float Value);
+	void SetMusicVolume(float Value);
+	void SetEffectsVolume(float Value);
 
 	/** Monitor (0-based) the player chose for the game window; -1 = not chosen yet. */
 	int32 GetDisplayMonitor() const { return DisplayMonitor; }
@@ -93,9 +98,15 @@ private:
 	/** Starts Steam and makes Steam and the save agree on what is unlocked. */
 	void InitSteam();
 
-	/** Loads Content/Audio/evolve.wav (16-bit PCM) into memory. */
+	/** Loads Content/Audio/evolve.wav and the music in Content/Audio/Music (16-bit PCM WAV) into memory. */
 	void LoadSounds();
 	void PlayEvolveSound();
+
+	/** Starts the music once a world exists, keeps its stream fed (looping), and applies the volume. */
+	void UpdateMusic();
+
+	/** Slider position (0..1) to gain; squared so the slider feels even to the ear. */
+	static float SliderToGain(float Value) { return Value * Value; }
 
 	FEvoGameData Data;
 	FEvoEconomy Economy;
@@ -109,7 +120,9 @@ private:
 	double ClickTokens = 0.0;
 	double LastClickTime = 0.0;
 	bool bReducedMotion = false;
-	bool bSoundEnabled = true;
+	float MasterVolume = 1.f;
+	float MusicVolume = 0.6f;
+	float EffectsVolume = 1.f;
 
 	// Evolve sound: PCM kept in memory and replayed through one reusable audio component.
 	TArray<uint8> EvolvePCM;
@@ -121,6 +134,19 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> EvolveAudio;
+
+	// Background music: every WAV in Content/Audio/Music, joined in name order and looped.
+	// It is streamed into a procedural wave a few seconds ahead of playback.
+	TArray<uint8> MusicPCM;
+	int32 MusicSampleRate = 0;
+	int32 MusicChannels = 0;
+	int64 MusicReadPos = 0;
+
+	UPROPERTY()
+	TObjectPtr<USoundWaveProcedural> MusicWave;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> MusicAudio;
 	int32 DisplayMonitor = -1;
 
 	TMap<FString, FDateTime> UnlockedAchievements;

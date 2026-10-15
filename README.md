@@ -26,7 +26,12 @@ To compile without opening the editor (editor closed), double-click `BuildEditor
 The packaged game's .exe and window icon is `Build/Windows/Application.ico` (the "EI" icon, 16-256 px).
 
 To ship a standalone build: **Platforms > Windows > Package Project**. `Content/Data` is packaged
-automatically (see `Config/DefaultGame.ini`).
+automatically (see `Config/DefaultGame.ini`), as are `Content/Audio` and `Content/Achievements`.
+
+Music: every 16-bit PCM WAV in `Content/Audio/Music` is played back to back in name order and looped.
+The track is stored as two halves (`TideOfGlass_1.wav`, `TideOfGlass_2.wav`) only to keep each file under
+30 MB; the halves join with no gap. To change the music, replace the files (all must share one sample
+rate and channel count).
 
 ## What's in this build
 
@@ -48,7 +53,9 @@ automatically (see `Config/DefaultGame.ini`).
 | Stage-up banner and flash, reduced-motion setting, reset progress | Done |
 | Settings: window mode (windowed / borderless / fullscreen), resolution, monitor choice (remembered), Save & Quit | Done |
 | Click-rate cap: at most 20 clicks/sec count (`maxClicksPerSecond` in GameData.json), so autoclickers can't break the economy | Done |
-| Evolve sound (`Content/Audio/evolve.wav`, loaded by code) with a Sound effects on/off setting | Done |
+| Evolve sound (`Content/Audio/evolve.wav`, loaded by code) | Done |
+| Background music "Tide of Glass", looping (`Content/Audio/Music/*.wav`, played in name order) | Done |
+| Settings: Master, Music and Evolution chime volume sliders (saved) | Done |
 | Unreal's default splash image disabled (`WindowsApplication.ShowSplash=0`) | Done |
 | Era production bonus (+10% at stages 5, 9, 13, 17) | Done (set to 0 in data to disable) |
 | 32 achievements (every evolution, every era, clicks, automation, full offline period) with an in-game Achievements panel and unlock toasts using the same icons as Steam; unlocks mirror to Steam ([setup](Docs/Steam_Achievements.md)) | Done |
