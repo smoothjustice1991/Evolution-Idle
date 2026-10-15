@@ -38,6 +38,9 @@ public:
 	void SaveNow();
 	void ResetProgress();
 
+	/** Saves, then closes the game (ends Play-in-Editor when run from the editor). */
+	void QuitGame();
+
 	// ---- Settings ----
 	bool GetReducedMotion() const { return bReducedMotion; }
 	void SetReducedMotion(bool bEnabled);

@@ -1118,6 +1118,26 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 					]
 					+ SVerticalBox::Slot()
 					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 12.f)
+					[
+						SNew(SButton)
+						.ButtonStyle(&GhostButtonStyle)
+						.HAlign(HAlign_Center)
+						.ToolTipText(LOCTEXT("QuitTip", "Saves your progress and closes the game. Offline earnings start counting now."))
+						.OnClicked_Lambda([this]()
+						{
+							if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+							{
+								Sub->QuitGame();
+							}
+							return FReply::Handled();
+						})
+						[
+							Label(LOCTEXT("Quit", "Save & Quit Game"), 13, TextMain, "Bold")
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
 					[
 						SNew(SHorizontalBox)
 						+ SHorizontalBox::Slot()

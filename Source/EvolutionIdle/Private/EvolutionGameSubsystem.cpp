@@ -2,6 +2,10 @@
 #include "EvolutionIdle.h"
 #include "EvolutionSaveGame.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Engine/GameInstance.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "Misc/Paths.h"
 
 const FString UEvolutionGameSubsystem::SaveSlotName = TEXT("EvolutionIdle_Save");
@@ -187,6 +191,15 @@ void UEvolutionGameSubsystem::ResetProgress()
 	PendingOfflineSeconds = 0.0;
 	SaveNow();
 	OnProgressReset.Broadcast();
+}
+
+void UEvolutionGameSubsystem::QuitGame()
+{
+	SaveNow();
+	UGameInstance* GameInstance = GetGameInstance();
+	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
+	APlayerController* Controller = GameInstance ? GameInstance->GetFirstLocalPlayerController() : nullptr;
+	UKismetSystemLibrary::QuitGame(World, Controller, EQuitPreference::Quit, false);
 }
 
 void UEvolutionGameSubsystem::SetReducedMotion(bool bEnabled)
