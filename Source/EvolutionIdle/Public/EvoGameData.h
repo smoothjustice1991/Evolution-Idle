@@ -25,6 +25,9 @@ struct EVOLUTIONIDLE_API FEvoEconomyConfig
 	/** Fraction of normal passive production granted while offline. */
 	UPROPERTY() double OfflineEfficiency = 0.5;
 
+	/** Most manual clicks counted per second; faster clicks (e.g. from autoclickers) are ignored. 0 = no limit. */
+	UPROPERTY() double MaxClicksPerSecond = 20.0;
+
 	/** Seconds between automatic saves. */
 	UPROPERTY() double AutosaveSeconds = 15.0;
 };

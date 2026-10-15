@@ -45,6 +45,7 @@ automatically (see `Config/DefaultGame.ini`).
 | Offline earnings: 50% for up to 8 h, granted once | Done |
 | Stage-up banner and flash, reduced-motion setting, reset progress | Done |
 | Settings: window mode (windowed / borderless / fullscreen), resolution, monitor choice (remembered), Save & Quit | Done |
+| Click-rate cap: at most 20 clicks/sec count (`maxClicksPerSecond` in GameData.json), so autoclickers can't break the economy | Done |
 | Unreal's default splash image disabled (`WindowsApplication.ShowSplash=0`) | Done |
 | Era production bonus (+10% at stages 5, 9, 13, 17) | Done (set to 0 in data to disable) |
 | Critical clicks, combos, achievements, sound, Cosmic Rebirth prestige | Not yet (roadmap phase 4 / post-MVP) |

@@ -181,6 +181,10 @@ FReply SEvoHelix::HandleClick(const FGeometry& MyGeometry, const FPointerEvent& 
 	}
 
 	const double Gain = Sub->Click();
+	if (Gain <= 0.0)
+	{
+		return FReply::Handled(); // over the click-rate cap: no EP, no effects
+	}
 	const FVector2f Local = FVector2f(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition()));
 	const bool bReduced = IsReducedMotion();
 

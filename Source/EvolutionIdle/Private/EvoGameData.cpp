@@ -136,6 +136,7 @@ bool FEvoGameData::Finalize(TArray<FString>& OutErrors)
 	Economy.OfflineCapHours = FMath::Max(0.0, Economy.OfflineCapHours);
 	Economy.OfflineEfficiency = FMath::Clamp(Economy.OfflineEfficiency, 0.0, 1.0);
 	Economy.AutosaveSeconds = FMath::Max(1.0, Economy.AutosaveSeconds);
+	Economy.MaxClicksPerSecond = FMath::Max(0.0, Economy.MaxClicksPerSecond);
 
 	return bUsable;
 }

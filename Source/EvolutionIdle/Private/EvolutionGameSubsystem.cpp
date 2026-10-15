@@ -158,7 +158,34 @@ bool UEvolutionGameSubsystem::TickEconomy(float DeltaTime)
 
 double UEvolutionGameSubsystem::Click()
 {
-	return bDataValid ? Economy.Click() : 0.0;
+	if (!bDataValid)
+	{
+		return 0.0;
+	}
+
+	const double Rate = Data.Economy.MaxClicksPerSecond;
+	if (Rate > 0.0)
+	{
+		// Allow a short burst (a quick double click) but never more than Rate clicks per second sustained,
+		// so autoclickers can't outpace the economy.
+		constexpr double BurstClicks = 3.0;
+		const double Now = FPlatformTime::Seconds();
+		if (LastClickTime <= 0.0)
+		{
+			ClickTokens = BurstClicks;
+		}
+		else
+		{
+			ClickTokens = FMath::Min(BurstClicks, ClickTokens + (Now - LastClickTime) * Rate);
+		}
+		LastClickTime = Now;
+		if (ClickTokens < 1.0)
+		{
+			return 0.0;
+		}
+		ClickTokens -= 1.0;
+	}
+	return Economy.Click();
 }
 
 bool UEvolutionGameSubsystem::BuyUpgrade(const FString& UpgradeId)

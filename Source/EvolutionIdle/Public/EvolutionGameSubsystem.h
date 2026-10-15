@@ -30,6 +30,7 @@ public:
 	const FEvoEconomy& GetEconomy() const { return Economy; }
 
 	// ---- Player actions ----
+	/** Manual click. Returns the EP granted, or 0 if the click came faster than the click-rate cap allows. */
 	double Click();
 	bool BuyUpgrade(const FString& UpgradeId);
 	bool Evolve();
@@ -72,6 +73,10 @@ private:
 
 	FTSTicker::FDelegateHandle TickHandle;
 	double AutosaveTimer = 0.0;
+
+	// Click-rate cap (token bucket): refills at MaxClicksPerSecond, holds a few clicks of burst.
+	double ClickTokens = 0.0;
+	double LastClickTime = 0.0;
 	bool bReducedMotion = false;
 	int32 DisplayMonitor = -1;
 

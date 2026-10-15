@@ -4,7 +4,8 @@
 		"defaultCostScaling": 1.2,
 		"offlineCapHours": 8,
 		"offlineEfficiency": 0.5,
-		"autosaveSeconds": 15
+		"autosaveSeconds": 15,
+		"maxClicksPerSecond": 20
 	},
 	"eras": [
 		{ "id": 1, "name": "The Beginning", "costMultiplier": 1, "primaryColor": "29E0FF", "secondaryColor": "1BFFB0", "backgroundColor": "050B14" },

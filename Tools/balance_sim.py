@@ -67,6 +67,9 @@ class Economy:
 
 
 def simulate(data, cps, max_hours, verbose=False):
+    cap = data["economy"].get("maxClicksPerSecond", 0)
+    if cap and cap > 0:
+        cps = min(cps, cap)  # the game ignores clicks beyond this rate
     e = Economy(data)
     t = 0.0
     dt = 1.0
