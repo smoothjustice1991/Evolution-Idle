@@ -26,8 +26,8 @@ namespace
 	constexpr double AchievementCheckSeconds = 0.25;
 
 	/** Music is queued this many seconds ahead of playback, in chunks of MusicChunkSeconds. */
-	constexpr double MusicBufferSeconds = 3.0;
-	constexpr double MusicChunkSeconds = 1.0;
+	constexpr double MusicBufferSeconds = 1.5;
+	constexpr double MusicChunkSeconds = 0.25;
 
 	/**
 	 * Minimal RIFF/WAVE reader: needs a 16-bit PCM "fmt " chunk and a "data" chunk.
@@ -362,7 +362,7 @@ void UEvolutionGameSubsystem::SetDisplayMonitor(int32 MonitorIndex)
 void UEvolutionGameSubsystem::SetMasterVolume(float Value)
 {
 	MasterVolume = FMath::Clamp(Value, 0.f, 1.f);
-	if (EvolveAudio)
+	if (IsValid(EvolveAudio))
 	{
 		EvolveAudio->SetVolumeMultiplier(SliderToGain(MasterVolume) * SliderToGain(EffectsVolume));
 	}
@@ -378,7 +378,7 @@ void UEvolutionGameSubsystem::SetMusicVolume(float Value)
 void UEvolutionGameSubsystem::SetEffectsVolume(float Value)
 {
 	EffectsVolume = FMath::Clamp(Value, 0.f, 1.f);
-	if (EvolveAudio)
+	if (IsValid(EvolveAudio))
 	{
 		EvolveAudio->SetVolumeMultiplier(SliderToGain(MasterVolume) * SliderToGain(EffectsVolume));
 	}
@@ -442,25 +442,27 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		return;
 	}
 
-	if (!MusicWave)
+	if (!IsValid(MusicAudio) || MusicAudio->GetWorld() != World)
 	{
+		// A procedural wave must only ever feed one playing sound, so each new audio component gets its own wave.
+		if (IsValid(MusicAudio))
+		{
+			MusicAudio->Stop();
+		}
 		MusicWave = NewObject<USoundWaveProcedural>(this);
 		MusicWave->SetSampleRate(MusicSampleRate);
 		MusicWave->NumChannels = MusicChannels;
 		MusicWave->Duration = INDEFINITELY_LOOPING_DURATION;
-		MusicWave->SoundGroup = SOUNDGROUP_Music;
+		MusicWave->SoundGroup = SOUNDGROUP_Default;
 		MusicWave->bLooping = false;
-	}
 
-	if (!MusicAudio || MusicAudio->GetWorld() != World)
-	{
 		MusicAudio = UGameplayStatics::CreateSound2D(World, MusicWave, 1.f, 1.f, 0.f, nullptr, true, false);
+		MusicReadPos = 0;
+		bMusicStarted = false;
 		if (!MusicAudio)
 		{
 			return;
 		}
-		MusicWave->ResetAudio();
-		MusicReadPos = 0;
 	}
 
 	MusicAudio->SetVolumeMultiplier(FMath::Max(Gain, 0.0001f));
@@ -482,8 +484,11 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		}
 	}
 
-	if (!MusicAudio->IsPlaying())
+	// Start exactly once per component. (IsPlaying() can read false for a frame after starting, and
+	// restarting would make two sounds pull from the same wave at once.)
+	if (!bMusicStarted)
 	{
+		bMusicStarted = true;
 		MusicAudio->FadeIn(2.0f, 1.f);
 	}
 }
@@ -502,29 +507,26 @@ void UEvolutionGameSubsystem::PlayEvolveSound()
 		return;
 	}
 
-	if (!EvolveWave)
+	// Cut off a chime that is still playing, then play a fresh one. Each chime gets its own procedural wave,
+	// because a procedural wave must never feed two playing sounds at once.
+	if (IsValid(EvolveAudio))
 	{
-		EvolveWave = NewObject<USoundWaveProcedural>(this);
-		EvolveWave->SetSampleRate(EvolveSampleRate);
-		EvolveWave->NumChannels = EvolveChannels;
-		EvolveWave->Duration = static_cast<float>(EvolvePCM.Num()) / static_cast<float>(EvolveSampleRate * EvolveChannels * 2);
-		EvolveWave->SoundGroup = SOUNDGROUP_Default;
-		EvolveWave->bLooping = false;
+		EvolveAudio->Stop();
 	}
-	if (!EvolveAudio || EvolveAudio->GetWorld() != World)
-	{
-		EvolveAudio = UGameplayStatics::CreateSound2D(World, EvolveWave, 1.f, 1.f, 0.f, nullptr, true, false);
-	}
-	if (!EvolveAudio)
-	{
-		return;
-	}
-
-	EvolveAudio->Stop();
-	EvolveAudio->SetVolumeMultiplier(Gain);
-	EvolveWave->ResetAudio();
+	EvolveWave = NewObject<USoundWaveProcedural>(this);
+	EvolveWave->SetSampleRate(EvolveSampleRate);
+	EvolveWave->NumChannels = EvolveChannels;
+	EvolveWave->Duration = static_cast<float>(EvolvePCM.Num()) / static_cast<float>(EvolveSampleRate * EvolveChannels * 2);
+	EvolveWave->SoundGroup = SOUNDGROUP_Default;
+	EvolveWave->bLooping = false;
 	EvolveWave->QueueAudio(EvolvePCM.GetData(), EvolvePCM.Num());
-	EvolveAudio->Play();
+
+	// Auto-destroys when finished.
+	EvolveAudio = UGameplayStatics::CreateSound2D(World, EvolveWave, Gain, 1.f, 0.f, nullptr, false, true);
+	if (EvolveAudio)
+	{
+		EvolveAudio->Play();
+	}
 }
 
 void UEvolutionGameSubsystem::ClearOfflineReport()

@@ -124,7 +124,7 @@ private:
 	float MusicVolume = 0.6f;
 	float EffectsVolume = 1.f;
 
-	// Evolve sound: PCM kept in memory and replayed through one reusable audio component.
+	// Evolve sound: PCM kept in memory; each play gets a fresh procedural wave and audio component.
 	TArray<uint8> EvolvePCM;
 	int32 EvolveSampleRate = 0;
 	int32 EvolveChannels = 0;
@@ -141,6 +141,7 @@ private:
 	int32 MusicSampleRate = 0;
 	int32 MusicChannels = 0;
 	int64 MusicReadPos = 0;
+	bool bMusicStarted = false;
 
 	UPROPERTY()
 	TObjectPtr<USoundWaveProcedural> MusicWave;
