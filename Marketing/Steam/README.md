@@ -13,6 +13,11 @@ They are not packaged into the game.
 | `header_capsule_920x430.png` | Library Header Capsule (same file as the store header) | 920 × 430 |
 | `library_hero_3840x1240.png` | Library Hero (art only) | 3840 × 1240 PNG |
 | `library_logo_1189x720.png` | Library Logo (transparent, shown over the Hero) | 1189 × 720 PNG |
+| `shortcut_icon_256x256.png` | Shortcut Icon ("EI", transparent rounded corners) | 256 × 256 PNG |
+| `app_icon_184x184.jpg` | App Icon ("EI", square) | 184 × 184 JPG |
+
+`icon_master_1024.png` is the full-size icon for any other use. The icons are generated from
+`logo_source_1280x733.png` with `python3 Tools/make_icons.py Marketing/Steam/logo_source_1280x733.png`.
 
 The capsules and hero are opaque PNGs (the original store capsules had a few semi-transparent edge
 pixels, flattened onto the art's deep navy). The library logo keeps its transparency; the supplied
@@ -24,8 +29,6 @@ pixels, flattened onto the art's deep navy). The library logo keeps its transpar
 | Asset | Size | Notes |
 |---|---|---|
 | Screenshots | at least 1920 × 1080, 16:9 | At least 5 for the store page |
-| Shortcut icon | 256 × 256 .png or .ico | |
-| App icon | 184 × 184 .jpg | |
 | Page background | 1438 × 810 | Optional, subtle and dark |
 
 Sizes from the Steamworks documentation: https://partner.steamgames.com/doc/store/assets
