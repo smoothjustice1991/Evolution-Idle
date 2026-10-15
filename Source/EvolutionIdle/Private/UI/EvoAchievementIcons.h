@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 struct FSlateBrush;
-class FSlateDynamicImageBrush;
+struct FSlateDynamicImageBrush;
 
 /**
  * Loads the achievement icons (Content/Achievements/<id>.png and <id>_locked.png) as Slate brushes.
