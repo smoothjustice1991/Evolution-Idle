@@ -57,6 +57,9 @@ namespace EvoMesh
 		int32_t NumTriangles() const { return static_cast<int32_t>(TriSlot.size()); }
 	};
 
+	/** Appends an elongated octahedron (crystal) to an existing mesh. Used for upgrade indicators. */
+	void AppendGem(FMesh& Mesh, const FV3& Center, const FV3& Axis, float Length, float Width, uint8_t Slot);
+
 	/** Builds the model for a stage id (1..20). Unknown ids return a simple sphere. */
 	FMesh BuildStageMesh(int32_t StageId);
 }

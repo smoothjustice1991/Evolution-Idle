@@ -1,6 +1,7 @@
 #include "UI/SEvoStageModel.h"
 #include "EvolutionGameSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Fonts/FontMeasure.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
 #include "Styling/CoreStyle.h"
@@ -14,6 +15,13 @@ namespace
 	constexpr float StageSpinSpeed = 0.35f;      // radians per second
 	constexpr float StageVisibility = 0.9f;      // blend toward the background so the model stays "in the background"
 	constexpr float StageTransitionSeconds = 1.3f;
+
+	// Upgrade indicators
+	constexpr int32 StageMaxOrbitRings = 4;
+	constexpr int32 StageMaxCrownShards = 10;
+	constexpr int32 StageMaxHaloRings = 5;
+	constexpr float StageCrystalGrowSeconds = 0.7f;
+	constexpr float StageFitScale = 0.78f;      // shrink the model a little so the orbits fit on screen
 
 	FLinearColor StageLerp3(const FLinearColor& A, const FLinearColor& B, float T)
 	{
@@ -32,6 +40,24 @@ namespace
 		const float U = T - 1.f;
 		return 1.f + C3 * U * U * U + C1 * U * U;
 	}
+
+	EvoMesh::FV3 StageToMesh(const FVector3f& V)
+	{
+		return EvoMesh::FV3(V.X, V.Y, V.Z);
+	}
+}
+
+SEvoStageModel::SEvoStageModel()
+	: DotBrush(FLinearColor::White, 4.f)
+{
+}
+
+SEvoStageModel::~SEvoStageModel()
+{
+	if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+	{
+		Sub->OnUpgradeBought.Remove(UpgradeBoughtHandle);
+	}
 }
 
 void SEvoStageModel::Construct(const FArguments& InArgs)
@@ -39,6 +65,12 @@ void SEvoStageModel::Construct(const FArguments& InArgs)
 	Subsystem = InArgs._Subsystem;
 	WhiteBrush = FCoreStyle::Get().GetBrush("GenericWhiteBox");
 	SetVisibility(EVisibility::HitTestInvisible);
+
+	if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+	{
+		UpgradeBoughtHandle = Sub->OnUpgradeBought.AddSP(this, &SEvoStageModel::HandleUpgradeBought);
+	}
+
 	RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SEvoStageModel::Animate));
 }
 
@@ -85,6 +117,119 @@ SEvoStageModel::FPalette SEvoStageModel::GetPalette() const
 	return Palette;
 }
 
+// ---------------------------------------------------------------------------
+// Upgrade bookkeeping
+// ---------------------------------------------------------------------------
+
+int32 SEvoStageModel::CrystalsForCount(int32 Owned)
+{
+	if (Owned <= 0)
+	{
+		return 0;
+	}
+	// 1 -> 1, 2-3 -> 2, 4-7 -> 3, 8-15 -> 4, 16-31 -> 5, 32+ -> 6
+	return FMath::Min(6, 1 + static_cast<int32>(FMath::FloorLog2(static_cast<uint32>(Owned))));
+}
+
+SEvoStageModel::FUpgradeVisuals SEvoStageModel::ComputeUpgradeVisuals() const
+{
+	FUpgradeVisuals Visuals;
+	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+	if (!Sub || !Sub->HasGameData())
+	{
+		return Visuals;
+	}
+	const FEvoEconomy& Econ = Sub->GetEconomy();
+
+	TArray<FOrbitRing> Owned;
+	for (const FEvoUpgradeDef& Def : Econ.GetData().Upgrades)
+	{
+		const int32 Level = Econ.GetLevel(Def.Id);
+		if (Level <= 0)
+		{
+			continue;
+		}
+		switch (Def.GetEffect())
+		{
+		case EEvoEffect::Production:
+		{
+			FOrbitRing& Ring = Owned.AddDefaulted_GetRef();
+			Ring.UpgradeId = Def.Id;
+			Ring.Crystals = CrystalsForCount(Level);
+			break;
+		}
+		case EEvoEffect::ClickPower:
+			Visuals.ClickLevels += Level;
+			break;
+		case EEvoEffect::Multiplier:
+			Visuals.MultiplierLevels += Level;
+			break;
+		default:
+			break;
+		}
+	}
+
+	// Show the newest auto-clicker types (data order runs from earliest to latest era).
+	const int32 First = FMath::Max(0, Owned.Num() - StageMaxOrbitRings);
+	for (int32 Index = First; Index < Owned.Num(); ++Index)
+	{
+		FOrbitRing Ring = Owned[Index];
+		Ring.RingIndex = Index - First;
+		Visuals.Rings.Add(Ring);
+	}
+	return Visuals;
+}
+
+void SEvoStageModel::HandleUpgradeBought(const FString& UpgradeId)
+{
+	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+	if (!Sub || !Sub->HasGameData())
+	{
+		return;
+	}
+	const FEvoUpgradeDef* Def = Sub->GetEconomy().FindUpgrade(UpgradeId);
+	if (!Def)
+	{
+		return;
+	}
+
+	const FPalette Palette = GetPalette();
+	switch (Def->GetEffect())
+	{
+	case EEvoEffect::Production: FlashColor = Palette.Secondary; break;
+	case EEvoEffect::ClickPower: FlashColor = StageLerp3(Palette.Primary, FLinearColor::White, 0.6f); break;
+	default:                     FlashColor = StageLerp3(Palette.Primary, FLinearColor(1.f, 0.85f, 0.4f), 0.5f); break;
+	}
+	Flash = 1.f;
+	Shock = 0.f;
+
+	if (Labels.Num() >= 6)
+	{
+		Labels.RemoveAt(0);
+	}
+	FFloatLabel& Label = Labels.AddDefaulted_GetRef();
+	Label.Text = FString::Printf(TEXT("+1 %s"), *Def->Name);
+	Label.Color = FlashColor;
+
+	if (!IsReducedMotion())
+	{
+		for (int32 Index = 0; Index < 26 && Sparks.Num() < 150; ++Index)
+		{
+			FSpark& Spark = Sparks.AddDefaulted_GetRef();
+			const float Angle = FMath::FRandRange(0.f, 2.f * UE_PI);
+			const float Speed = FMath::FRandRange(0.6f, 1.6f);
+			Spark.Pos = FVector2f(FMath::Cos(Angle), FMath::Sin(Angle)) * 0.25f;
+			Spark.Vel = FVector2f(FMath::Cos(Angle), FMath::Sin(Angle)) * Speed;
+			Spark.Life = FMath::FRandRange(0.8f, 1.4f);
+			Spark.Color = StageLerp3(FlashColor, FLinearColor::White, FMath::FRandRange(0.f, 0.5f));
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Animation
+// ---------------------------------------------------------------------------
+
 EActiveTimerReturnType SEvoStageModel::Animate(double InCurrentTime, float InDeltaTime)
 {
 	const float Dt = FMath::Clamp(InDeltaTime, 0.f, 0.1f);
@@ -98,6 +243,13 @@ EActiveTimerReturnType SEvoStageModel::Animate(double InCurrentTime, float InDel
 		PreviousMesh = bFirst ? nullptr : CurrentMesh;
 		CurrentMesh = MakeShared<EvoMesh::FMesh>(EvoMesh::BuildStageMesh(StageId));
 		CurrentStageId = StageId;
+		MeshMinY = 1.f;
+		MeshMaxY = -1.f;
+		for (const EvoMesh::FV3& P : CurrentMesh->Positions)
+		{
+			MeshMinY = FMath::Min(MeshMinY, P.Y);
+			MeshMaxY = FMath::Max(MeshMaxY, P.Y);
+		}
 		Transition = (bFirst || bReduced) ? 1.f : 0.f;
 	}
 
@@ -110,9 +262,145 @@ EActiveTimerReturnType SEvoStageModel::Animate(double InCurrentTime, float InDel
 		}
 	}
 
+	// Track crystal counts so newly earned crystals grow in.
+	const FUpgradeVisuals Visuals = ComputeUpgradeVisuals();
+	const bool bFirstCount = KnownClickLevels < 0;
+	for (const FOrbitRing& Ring : Visuals.Rings)
+	{
+		int32& Known = KnownCrystals.FindOrAdd(Ring.UpgradeId);
+		if (Ring.Crystals > Known && !bFirstCount)
+		{
+			CrystalAge.Add(Ring.UpgradeId, 0.f);
+		}
+		Known = Ring.Crystals;
+	}
+	if (Visuals.ClickLevels > KnownClickLevels && !bFirstCount)
+	{
+		CrownAge = 0.f;
+	}
+	KnownClickLevels = Visuals.ClickLevels;
+	if (Visuals.Rings.Num() == 0)
+	{
+		KnownCrystals.Reset(); // progress was reset
+	}
+	for (TPair<FString, float>& Pair : CrystalAge)
+	{
+		Pair.Value += Dt;
+	}
+	CrownAge += Dt;
+
+	// Purchase effects
+	Flash = FMath::Max(0.f, Flash - Dt * 1.1f);
+	Shock = FMath::Min(1.f, Shock + Dt * 1.4f);
+	for (int32 Index = Sparks.Num() - 1; Index >= 0; --Index)
+	{
+		FSpark& Spark = Sparks[Index];
+		Spark.Age += Dt;
+		Spark.Pos += Spark.Vel * Dt;
+		Spark.Vel *= FMath::Max(0.f, 1.f - 2.5f * Dt);
+		if (Spark.Age >= Spark.Life)
+		{
+			Sparks.RemoveAtSwap(Index);
+		}
+	}
+	for (int32 Index = Labels.Num() - 1; Index >= 0; --Index)
+	{
+		Labels[Index].Age += Dt;
+		if (Labels[Index].Age > 1.6f)
+		{
+			Labels.RemoveAt(Index);
+		}
+	}
+
 	Invalidate(EInvalidateWidgetReason::Paint);
 	return EActiveTimerReturnType::Continue;
 }
+
+// ---------------------------------------------------------------------------
+// Geometry helpers
+// ---------------------------------------------------------------------------
+
+FVector3f SEvoStageModel::RingPoint(int32 RingIndex, float Angle) const
+{
+	const float Radius = 1.12f + 0.11f * static_cast<float>(RingIndex);
+	const float Pitch = 0.32f + 0.28f * FMath::Sin(static_cast<float>(RingIndex) * 1.9f + 0.4f);
+	const float Roll = 0.35f * FMath::Cos(static_cast<float>(RingIndex) * 2.3f);
+	FVector3f P(FMath::Cos(Angle) * Radius, 0.f, FMath::Sin(Angle) * Radius);
+	// roll (Z) then pitch (X)
+	P = FVector3f(P.X * FMath::Cos(Roll) - P.Y * FMath::Sin(Roll), P.X * FMath::Sin(Roll) + P.Y * FMath::Cos(Roll), P.Z);
+	P = FVector3f(P.X, P.Y * FMath::Cos(Pitch) - P.Z * FMath::Sin(Pitch), P.Y * FMath::Sin(Pitch) + P.Z * FMath::Cos(Pitch));
+	return P;
+}
+
+FVector3f SEvoStageModel::ToView(const FVector3f& P, float Yaw) const
+{
+	const float CosY = FMath::Cos(Yaw), SinY = FMath::Sin(Yaw);
+	const float CosP = FMath::Cos(StageViewPitch), SinP = FMath::Sin(StageViewPitch);
+	const float X1 = P.X * CosY + P.Z * SinY;
+	const float Z1 = -P.X * SinY + P.Z * CosY;
+	return FVector3f(X1, P.Y * CosP - Z1 * SinP, P.Y * SinP + Z1 * CosP);
+}
+
+void SEvoStageModel::BuildUpgradeGeometry(const FUpgradeVisuals& Visuals, EvoMesh::FMesh& OutMesh) const
+{
+	OutMesh.Positions.clear();
+	OutMesh.Flex.clear();
+	OutMesh.Indices.clear();
+	OutMesh.TriSlot.clear();
+	OutMesh.TriTwoSided.clear();
+
+	const bool bReduced = IsReducedMotion();
+	static const uint8 RingSlots[StageMaxOrbitRings] = { EvoMesh::SlotPrimary, EvoMesh::SlotSecondary, EvoMesh::SlotPrimary, EvoMesh::SlotAccent };
+
+	// Orbiting crystals, one ring per auto-clicker type.
+	for (const FOrbitRing& Ring : Visuals.Rings)
+	{
+		const float Speed = (0.9f / (1.f + 0.35f * static_cast<float>(Ring.RingIndex))) * (bReduced ? 0.3f : 1.f);
+		const float* AgePtr = CrystalAge.Find(Ring.UpgradeId);
+		for (int32 Index = 0; Index < Ring.Crystals; ++Index)
+		{
+			float Grow = 1.f;
+			if (AgePtr && Index == Ring.Crystals - 1)
+			{
+				Grow = FMath::Clamp(*AgePtr / StageCrystalGrowSeconds, 0.f, 1.f);
+				Grow = Grow <= 0.f ? 0.f : StageEaseOutBack(Grow);
+			}
+			if (Grow <= 0.01f)
+			{
+				continue;
+			}
+			const float Angle = Time * Speed + 2.f * UE_PI * static_cast<float>(Index) / static_cast<float>(Ring.Crystals) + static_cast<float>(Ring.RingIndex) * 0.9f;
+			const FVector3f Pos = RingPoint(Ring.RingIndex, Angle);
+			const FVector3f Ahead = RingPoint(Ring.RingIndex, Angle + 0.05f);
+			const float Length = (0.1f + 0.015f * static_cast<float>(Ring.RingIndex)) * Grow;
+			const uint8 Slot = (Index == Ring.Crystals - 1 && AgePtr && *AgePtr < 1.2f) ? static_cast<uint8>(EvoMesh::SlotAccent) : RingSlots[Ring.RingIndex % StageMaxOrbitRings];
+			EvoMesh::AppendGem(OutMesh, StageToMesh(Pos), StageToMesh(Ahead - Pos), Length, Length * 0.45f, Slot);
+		}
+	}
+
+	// Crown of shards above the model for click power.
+	const int32 Shards = FMath::Min(Visuals.ClickLevels, StageMaxCrownShards);
+	for (int32 Index = 0; Index < Shards; ++Index)
+	{
+		float Grow = 1.f;
+		if (Index == Shards - 1 && CrownAge < StageCrystalGrowSeconds)
+		{
+			Grow = FMath::Max(0.f, StageEaseOutBack(CrownAge / StageCrystalGrowSeconds));
+		}
+		if (Grow <= 0.01f)
+		{
+			continue;
+		}
+		const float Angle = -Time * 0.6f + 2.f * UE_PI * static_cast<float>(Index) / static_cast<float>(Shards);
+		const float Bounce = bReduced ? 0.f : 0.03f * FMath::Sin(Time * 3.f + static_cast<float>(Index));
+		const FVector3f Pos(FMath::Cos(Angle) * 0.3f, MeshMaxY + 0.22f + Bounce, FMath::Sin(Angle) * 0.3f);
+		EvoMesh::AppendGem(OutMesh, StageToMesh(Pos), EvoMesh::FV3(0.f, 1.f, 0.f), 0.1f * Grow, 0.035f * Grow, EvoMesh::SlotAccent);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Paint
+// ---------------------------------------------------------------------------
 
 int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
 	FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -125,14 +413,20 @@ int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 
 	const bool bReduced = IsReducedMotion();
 	const FPalette Palette = GetPalette();
+	const FUpgradeVisuals Visuals = ComputeUpgradeVisuals();
 
 	// Float on the left of the evolution area so the helix in the middle stays readable.
 	const float Radius = FMath::Min(Size.Y * 0.4f, Size.X * 0.22f);
+	const float PixelScale = Radius * StageFitScale;
 	const float Bob = bReduced ? 0.f : FMath::Sin(Time * 0.9f) * Radius * 0.05f;
-	const FVector2f Center(FMath::Max(Radius * 1.05f, Size.X * 0.24f), Size.Y * 0.5f + Bob);
+	const FVector2f Center(FMath::Max(Radius * 1.25f, Size.X * 0.24f), Size.Y * 0.5f + Bob);
 
-	const int32 PedestalLayer = LayerId;
+	const int32 BackLayer = LayerId;
 	const int32 ModelLayer = LayerId + 1;
+	const int32 FxLayer = LayerId + 2;
+
+	const float Pulse = 1.f + 0.07f * Flash * (bReduced ? 0.f : 1.f);
+	const float AccentBoost = 1.f + FMath::Min(0.5f, 0.05f * static_cast<float>(Visuals.ClickLevels));
 
 	if (Transition < 1.f)
 	{
@@ -140,31 +434,96 @@ int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 		const float In = FMath::Clamp((Transition - 0.25f) / 0.75f, 0.f, 1.f);
 		if (PreviousMesh.IsValid() && Out < 1.f)
 		{
-			const float Shrink = 1.f - Out * Out;
-			PaintMesh(*PreviousMesh, Shrink, Out * 4.f, Center, Radius, Palette, AllottedGeometry, OutDrawElements, ModelLayer);
+			const EvoMesh::FMesh* Meshes[] = { PreviousMesh.Get() };
+			PaintMeshes(Meshes, 1, 1.f - Out * Out, Out * 4.f, Center, PixelScale, Palette, AccentBoost, AllottedGeometry, OutDrawElements, ModelLayer);
 		}
 		if (In > 0.f)
 		{
-			PaintMesh(*CurrentMesh, FMath::Max(0.01f, StageEaseOutBack(In)), (1.f - In) * -3.f, Center, Radius, Palette, AllottedGeometry, OutDrawElements, ModelLayer);
+			const EvoMesh::FMesh* Meshes[] = { CurrentMesh.Get() };
+			PaintMeshes(Meshes, 1, FMath::Max(0.01f, StageEaseOutBack(In)), (1.f - In) * -3.f, Center, PixelScale, Palette, AccentBoost, AllottedGeometry, OutDrawElements, ModelLayer);
 		}
 	}
 	else
 	{
-		PaintMesh(*CurrentMesh, 1.f, 0.f, Center, Radius, Palette, AllottedGeometry, OutDrawElements, ModelLayer);
+		BuildUpgradeGeometry(Visuals, UpgradeMesh);
+		PaintOrbitPaths(Visuals, Center, PixelScale, Palette, AllottedGeometry, OutDrawElements, BackLayer);
+		const EvoMesh::FMesh* Meshes[] = { CurrentMesh.Get(), &UpgradeMesh };
+		PaintMeshes(Meshes, 2, Pulse, 0.f, Center, PixelScale, Palette, AccentBoost, AllottedGeometry, OutDrawElements, ModelLayer);
 	}
 
-	PaintPedestal(FVector2f(Center.X, Size.Y * 0.5f + Radius * 1.02f), Radius, 1.f, Palette, AllottedGeometry, OutDrawElements, PedestalLayer);
-	return ModelLayer;
+	PaintPedestal(FVector2f(Center.X, Size.Y * 0.5f + PixelScale * (0.25f - MeshMinY)), Radius, Visuals.MultiplierLevels, Palette, AllottedGeometry, OutDrawElements, BackLayer);
+	PaintEffects(Center, Radius, Center.Y - PixelScale * (MeshMaxY + 0.55f), AllottedGeometry, OutDrawElements, FxLayer);
+	return FxLayer;
 }
 
-void SEvoStageModel::PaintPedestal(const FVector2f& Center, float Radius, float Alpha, const FPalette& Palette,
+void SEvoStageModel::PaintOrbitPaths(const FUpgradeVisuals& Visuals, const FVector2f& Center, float PixelScale, const FPalette& Palette,
+	const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
+{
+	const float Yaw = Time * StageSpinSpeed;
+	for (const FOrbitRing& Ring : Visuals.Rings)
+	{
+		TArray<FVector2f> Points;
+		constexpr int32 Segments = 72;
+		Points.Reserve(Segments + 1);
+		for (int32 Index = 0; Index <= Segments; ++Index)
+		{
+			const float Angle = 2.f * UE_PI * static_cast<float>(Index) / static_cast<float>(Segments);
+			const FVector3f V = ToView(RingPoint(Ring.RingIndex, Angle), Yaw);
+			const float Perspective = StageCameraDistance / FMath::Max(0.5f, StageCameraDistance - V.Z);
+			Points.Add(Center + FVector2f(V.X * Perspective, -V.Y * Perspective) * PixelScale);
+		}
+		FLinearColor Color = (Ring.RingIndex % 2) ? Palette.Secondary : Palette.Primary;
+		Color.A = 0.16f;
+		FSlateDrawElement::MakeLines(OutDrawElements, Layer, Geometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, 1.f);
+	}
+}
+
+void SEvoStageModel::PaintPedestal(const FVector2f& Center, float Radius, int32 MultiplierLevels, const FPalette& Palette,
 	const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
 {
 	const float Pulse = 0.5f + 0.5f * FMath::Sin(Time * 1.6f);
-	for (int32 Ring = 0; Ring < 3; ++Ring)
+	const int32 Halos = FMath::Min(MultiplierLevels, StageMaxHaloRings);
+	const FLinearColor Gold = StageLerp3(Palette.Primary, FLinearColor(1.f, 0.85f, 0.4f), 0.55f);
+
+	for (int32 Ring = 0; Ring < 3 + Halos; ++Ring)
 	{
-		const float Rx = Radius * (0.55f + 0.2f * Ring);
+		const bool bHalo = Ring >= 3;
+		const float Rx = Radius * (0.5f + 0.17f * static_cast<float>(Ring));
 		const float Ry = Rx * 0.18f;
+		const float Lift = bHalo ? -Radius * 0.012f * static_cast<float>(Ring - 2) : 0.f;
+		TArray<FVector2f> Points;
+		constexpr int32 Segments = 64;
+		Points.Reserve(Segments + 1);
+		for (int32 I = 0; I <= Segments; ++I)
+		{
+			const float A = 2.f * UE_PI * static_cast<float>(I) / static_cast<float>(Segments);
+			Points.Add(Center + FVector2f(FMath::Cos(A) * Rx, FMath::Sin(A) * Ry + Lift));
+		}
+		FLinearColor Color;
+		if (bHalo)
+		{
+			// Multiplier halos shimmer in sequence.
+			const float Wave = 0.5f + 0.5f * FMath::Sin(Time * 2.4f - static_cast<float>(Ring) * 0.9f);
+			Color = Gold;
+			Color.A = (0.3f + 0.35f * Wave) + 0.35f * Flash;
+		}
+		else
+		{
+			Color = Ring == 1 ? Palette.Secondary : Palette.Primary;
+			Color.A = (0.32f - 0.08f * static_cast<float>(Ring)) * (0.7f + 0.3f * Pulse);
+		}
+		FSlateDrawElement::MakeLines(OutDrawElements, Layer, Geometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, bHalo ? 2.f : 1.5f);
+	}
+}
+
+void SEvoStageModel::PaintEffects(const FVector2f& Center, float Radius, float LabelY, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
+{
+	// Shockwave ring expanding from the model
+	if (Shock < 1.f)
+	{
+		const float Ease = 1.f - (1.f - Shock) * (1.f - Shock);
+		const float Rx = Radius * (0.3f + 1.1f * Ease);
+		const float Ry = Rx * 0.35f;
 		TArray<FVector2f> Points;
 		constexpr int32 Segments = 64;
 		Points.Reserve(Segments + 1);
@@ -173,74 +532,117 @@ void SEvoStageModel::PaintPedestal(const FVector2f& Center, float Radius, float 
 			const float A = 2.f * UE_PI * static_cast<float>(I) / static_cast<float>(Segments);
 			Points.Add(Center + FVector2f(FMath::Cos(A) * Rx, FMath::Sin(A) * Ry));
 		}
-		FLinearColor Color = Ring == 1 ? Palette.Secondary : Palette.Primary;
-		Color.A = Alpha * (0.32f - 0.08f * Ring) * (0.7f + 0.3f * Pulse);
-		FSlateDrawElement::MakeLines(OutDrawElements, Layer, Geometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, 1.5f);
+		FLinearColor Color = StageLerp3(FlashColor, FLinearColor::White, 0.3f);
+		Color.A = 0.8f * (1.f - Shock);
+		FSlateDrawElement::MakeLines(OutDrawElements, Layer, Geometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, 3.f * (1.f - Shock) + 1.f);
+	}
+
+	// Sparks
+	for (const FSpark& Spark : Sparks)
+	{
+		const float Life01 = 1.f - Spark.Age / Spark.Life;
+		const float Size = 4.f + 5.f * Life01;
+		const FVector2f Pos = Center + Spark.Pos * Radius;
+		FLinearColor Color = Spark.Color;
+		Color.A = Life01;
+		FSlateDrawElement::MakeBox(OutDrawElements, Layer,
+			Geometry.ToPaintGeometry(FVector2f(Size, Size), FSlateLayoutTransform(Pos - FVector2f(Size, Size) * 0.5f)),
+			&DotBrush, ESlateDrawEffect::None, Color);
+	}
+
+	// "+1 Upgrade" labels rising above the model
+	if (Labels.Num() > 0)
+	{
+		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Bold", 15);
+		const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+		for (int32 Index = 0; Index < Labels.Num(); ++Index)
+		{
+			const FFloatLabel& Label = Labels[Index];
+			const FVector2f TextSize = FVector2f(Measure->Measure(Label.Text, Font));
+			const float Rise = Label.Age * Radius * 0.22f;
+			const FVector2f Pos = FVector2f(Center.X, LabelY - Rise) - TextSize * 0.5f;
+			FLinearColor Color = StageLerp3(Label.Color, FLinearColor::White, 0.4f);
+			Color.A = FMath::Clamp(1.6f - Label.Age, 0.f, 1.f) * FMath::Clamp(Label.Age * 6.f, 0.f, 1.f);
+			FSlateDrawElement::MakeText(OutDrawElements, Layer, Geometry.ToPaintGeometry(TextSize, FSlateLayoutTransform(Pos)),
+				Label.Text, Font, ESlateDrawEffect::None, Color);
+		}
 	}
 }
 
-void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float ExtraYaw, const FVector2f& Center, float Radius,
-	const FPalette& Palette, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
+void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes, float Scale, float ExtraYaw, const FVector2f& Center, float PixelScale,
+	const FPalette& Palette, float AccentBoost, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
 {
-	const int32 NumVerts = static_cast<int32>(Mesh.Positions.size());
-	const int32 NumTris = Mesh.NumTriangles();
-	if (NumVerts == 0 || NumTris == 0 || Scale <= 0.f)
+	if (Scale <= 0.f || NumMeshes <= 0)
 	{
 		return;
 	}
 
 	const bool bReduced = IsReducedMotion();
-
-	// ---- Transform to view space ----
 	const float Yaw = Time * StageSpinSpeed + ExtraYaw;
-	const float CosY = FMath::Cos(Yaw), SinY = FMath::Sin(Yaw);
-	const float CosP = FMath::Cos(StageViewPitch), SinP = FMath::Sin(StageViewPitch);
 
-	ViewPositions.SetNumUninitialized(NumVerts, EAllowShrinking::No);
-	for (int32 I = 0; I < NumVerts; ++I)
+	// ---- Transform every mesh to view space ----
+	int32 TotalVerts = 0;
+	for (int32 M = 0; M < NumMeshes; ++M)
 	{
-		const EvoMesh::FV3& Src = Mesh.Positions[I];
-		float X = Src.X, Y = Src.Y, Z = Src.Z;
-		const float Flex = Mesh.Flex[I];
-		if (Flex > 0.f && !bReduced)
+		TotalVerts += static_cast<int32>(Meshes[M]->Positions.size());
+	}
+	ViewPositions.SetNumUninitialized(TotalVerts, EAllowShrinking::No);
+	TArray<int32, TInlineAllocator<4>> VertexOffsets;
+	int32 Offset = 0;
+	for (int32 M = 0; M < NumMeshes; ++M)
+	{
+		const EvoMesh::FMesh& Mesh = *Meshes[M];
+		VertexOffsets.Add(Offset);
+		const int32 Count = static_cast<int32>(Mesh.Positions.size());
+		for (int32 I = 0; I < Count; ++I)
 		{
-			const float Amp = Flex * 0.12f;
-			X += Amp * 0.4f * FMath::Sin(Time * 1.7f + Src.Y * 3.f);
-			Z += Amp * FMath::Sin(Time * 2.2f + Src.X * 2.5f);
+			const EvoMesh::FV3& Src = Mesh.Positions[I];
+			FVector3f P(Src.X, Src.Y, Src.Z);
+			const float Flex = Mesh.Flex[I];
+			if (Flex > 0.f && !bReduced)
+			{
+				const float Amp = Flex * 0.12f;
+				P.X += Amp * 0.4f * FMath::Sin(Time * 1.7f + Src.Y * 3.f);
+				P.Z += Amp * FMath::Sin(Time * 2.2f + Src.X * 2.5f);
+			}
+			ViewPositions[Offset + I] = ToView(P, Yaw) * Scale;
 		}
-		const float X1 = X * CosY + Z * SinY;
-		const float Z1 = -X * SinY + Z * CosY;
-		const float Y2 = Y * CosP - Z1 * SinP;
-		const float Z2 = Y * SinP + Z1 * CosP;
-		ViewPositions[I] = FVector3f(X1, Y2, Z2) * Scale;
+		Offset += Count;
 	}
 
 	// ---- Cull back faces and sort far to near ----
 	SortedTris.Reset();
-	for (int32 T = 0; T < NumTris; ++T)
+	for (int32 M = 0; M < NumMeshes; ++M)
 	{
-		const FVector3f& A = ViewPositions[Mesh.Indices[T * 3]];
-		const FVector3f& B = ViewPositions[Mesh.Indices[T * 3 + 1]];
-		const FVector3f& C = ViewPositions[Mesh.Indices[T * 3 + 2]];
-		FVector3f N = FVector3f::CrossProduct(B - A, C - A);
-		const FVector3f Centroid = (A + B + C) / 3.f;
-		const FVector3f ToCamera(-Centroid.X, -Centroid.Y, StageCameraDistance - Centroid.Z);
-		if (FVector3f::DotProduct(N, ToCamera) <= 0.f)
+		const EvoMesh::FMesh& Mesh = *Meshes[M];
+		const int32 Base = VertexOffsets[M];
+		const int32 NumTris = Mesh.NumTriangles();
+		for (int32 T = 0; T < NumTris; ++T)
 		{
-			if (!Mesh.TriTwoSided[T])
+			const FVector3f& A = ViewPositions[Base + static_cast<int32>(Mesh.Indices[T * 3])];
+			const FVector3f& B = ViewPositions[Base + static_cast<int32>(Mesh.Indices[T * 3 + 1])];
+			const FVector3f& C = ViewPositions[Base + static_cast<int32>(Mesh.Indices[T * 3 + 2])];
+			FVector3f N = FVector3f::CrossProduct(B - A, C - A);
+			const FVector3f Centroid = (A + B + C) / 3.f;
+			const FVector3f ToCamera(-Centroid.X, -Centroid.Y, StageCameraDistance - Centroid.Z);
+			if (FVector3f::DotProduct(N, ToCamera) <= 0.f)
+			{
+				if (!Mesh.TriTwoSided[T])
+				{
+					continue;
+				}
+				N = -N;
+			}
+			if (!N.Normalize(1e-12f))
 			{
 				continue;
 			}
-			N = -N;
+			FSortedTri& Entry = SortedTris.AddDefaulted_GetRef();
+			Entry.Depth = Centroid.Z;
+			Entry.MeshIndex = M;
+			Entry.Index = T;
+			Entry.Normal = N;
 		}
-		if (!N.Normalize(1e-12f))
-		{
-			continue;
-		}
-		FSortedTri& Entry = SortedTris.AddDefaulted_GetRef();
-		Entry.Depth = Centroid.Z;
-		Entry.Index = T;
-		Entry.Normal = N;
 	}
 	SortedTris.Sort([](const FSortedTri& L, const FSortedTri& R) { return L.Depth < R.Depth; });
 
@@ -249,7 +651,7 @@ void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float Ex
 	FLinearColor SlotColors[EvoMesh::SlotCount];
 	SlotColors[EvoMesh::SlotPrimary] = StageScale3(Palette.Primary, 0.85f);
 	SlotColors[EvoMesh::SlotSecondary] = StageScale3(Palette.Secondary, 0.85f);
-	SlotColors[EvoMesh::SlotAccent] = StageLerp3(Palette.Primary, White, 0.55f);
+	SlotColors[EvoMesh::SlotAccent] = StageScale3(StageLerp3(Palette.Primary, White, 0.55f), AccentBoost);
 	SlotColors[EvoMesh::SlotDark] = StageLerp3(Palette.Background, Palette.Primary, 0.22f);
 	SlotColors[EvoMesh::SlotMid] = StageScale3(StageLerp3(Palette.Primary, Palette.Secondary, 0.5f), 0.55f);
 	const FLinearColor RimColor = StageLerp3(Palette.Secondary, White, 0.3f);
@@ -269,7 +671,6 @@ void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float Ex
 		}
 	}
 
-	const float PixelScale = Radius;
 	Vertices.Reset();
 	Indices.Reset();
 	Vertices.Reserve(SortedTris.Num() * 3);
@@ -277,15 +678,17 @@ void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float Ex
 
 	for (const FSortedTri& Entry : SortedTris)
 	{
+		const EvoMesh::FMesh& Mesh = *Meshes[Entry.MeshIndex];
+		const int32 Base = VertexOffsets[Entry.MeshIndex];
 		const uint8 Slot = FMath::Min<uint8>(Mesh.TriSlot[Entry.Index], EvoMesh::SlotCount - 1);
-		const FLinearColor& Base = SlotColors[Slot];
+		const FLinearColor& BaseColor = SlotColors[Slot];
 		const FVector3f& N = Entry.Normal;
 		const float Diffuse = FMath::Max(0.f, FVector3f::DotProduct(N, Light));
 
 		FLinearColor Color;
 		if (Slot == EvoMesh::SlotAccent)
 		{
-			Color = StageScale3(Base, 0.85f + 0.3f * Diffuse);
+			Color = StageScale3(BaseColor, 0.85f + 0.3f * Diffuse);
 		}
 		else
 		{
@@ -293,11 +696,16 @@ void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float Ex
 			const float Spec = FMath::Pow(FMath::Max(0.f, FVector3f::DotProduct(N, Half)), 24.f) * 0.35f;
 			const float Lit = 0.22f + 0.78f * Diffuse;
 			Color = FLinearColor(
-				Base.R * Lit + RimColor.R * Rim * 0.55f + Spec,
-				Base.G * Lit + RimColor.G * Rim * 0.55f + Spec,
-				Base.B * Lit + RimColor.B * Rim * 0.55f + Spec, 1.f);
+				BaseColor.R * Lit + RimColor.R * Rim * 0.55f + Spec,
+				BaseColor.G * Lit + RimColor.G * Rim * 0.55f + Spec,
+				BaseColor.B * Lit + RimColor.B * Rim * 0.55f + Spec, 1.f);
 			const float Fog = FMath::Clamp(0.5f + 0.5f * Entry.Depth / FMath::Max(Scale, 0.01f), 0.f, 1.f);
 			Color = StageScale3(Color, 0.6f + 0.4f * Fog);
+		}
+		if (Flash > 0.f)
+		{
+			// Purchase flash: tint toward the upgrade colour, strongest on edges facing away from the light.
+			Color = StageLerp3(Color, FlashColor, Flash * (0.25f + 0.35f * (1.f - Diffuse)));
 		}
 		Color = StageLerp3(Palette.Background, Color, StageVisibility);
 		const FColor VertexColor = Color.ToFColor(true);
@@ -305,7 +713,7 @@ void SEvoStageModel::PaintMesh(const EvoMesh::FMesh& Mesh, float Scale, float Ex
 		const SlateIndex BaseIndex = static_cast<SlateIndex>(Vertices.Num());
 		for (int32 K = 0; K < 3; ++K)
 		{
-			const FVector3f& P = ViewPositions[Mesh.Indices[Entry.Index * 3 + K]];
+			const FVector3f& P = ViewPositions[Base + static_cast<int32>(Mesh.Indices[Entry.Index * 3 + K])];
 			const float Perspective = StageCameraDistance / FMath::Max(0.5f, StageCameraDistance - P.Z);
 			const FVector2f Local = Center + FVector2f(P.X * Perspective, -P.Y * Perspective) * PixelScale;
 			Vertices.Add(FSlateVertex::Make(RenderTransform, Local, UV, VertexColor));

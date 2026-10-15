@@ -4,6 +4,7 @@
 #include <cmath>
 #include <set>
 #include <tuple>
+#include <utility>
 
 namespace EvoMesh
 {
@@ -944,6 +945,14 @@ namespace EvoMesh
 			B.Torus(FV3(0.f, 0.f, 0.f), 0.84f, 0.022f, SlotSecondary, FRot(-0.5f, 0.f, 0.9f), 48, 5);
 			B.Torus(FV3(0.f, 0.f, 0.f), 0.96f, 0.02f, SlotMid, FRot(0.3f, 0.f, -0.6f), 52, 5);
 		}
+	}
+
+	void AppendGem(FMesh& Mesh, const FV3& Center, const FV3& Axis, float Length, float Width, uint8_t Slot)
+	{
+		FBuilder B;
+		B.Mesh = std::move(Mesh);
+		B.Gem(Center, Axis, Length, Width, Slot, 0.f);
+		Mesh = std::move(B.Mesh);
 	}
 
 	FMesh BuildStageMesh(int32_t StageId)
