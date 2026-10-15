@@ -841,33 +841,67 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 			// Purchase flash: tint toward the upgrade colour, strongest on edges facing away from the light.
 			Color = StageLerp3(Color, FlashColor, Flash * (0.25f + 0.35f * (1.f - Diffuse)));
 		}
-		if (RevealY < TNumericLimits<float>::Max())
+		// Scanner mode: everything above the scan height is hidden. Triangles that cross it are clipped
+		// exactly at that height (in model space, before rotation) so the cut is a clean straight edge.
+		const bool bClip = RevealY < TNumericLimits<float>::Max();
+		FVector3f TriView[3];
+		float TriModelY[3];
+		for (int32 K = 0; K < 3; ++K)
 		{
-			const float TriY = (Mesh.Positions[Mesh.Indices[Entry.Index * 3]].Y
-				+ Mesh.Positions[Mesh.Indices[Entry.Index * 3 + 1]].Y
-				+ Mesh.Positions[Mesh.Indices[Entry.Index * 3 + 2]].Y) / 3.f;
-			if (TriY > RevealY)
+			const uint32 VertexIndex = Mesh.Indices[Entry.Index * 3 + K];
+			TriView[K] = ViewPositions[Base + static_cast<int32>(VertexIndex)];
+			TriModelY[K] = Mesh.Positions[VertexIndex].Y;
+		}
+
+		TArray<FVector3f, TInlineAllocator<4>> Polygon;
+		if (bClip)
+		{
+			for (int32 K = 0; K < 3; ++K)
 			{
-				// Not scanned yet: a dim holographic ghost.
-				Color = StageLerp3(Palette.Background, Palette.Primary, 0.12f + 0.2f * Diffuse);
+				const int32 NextK = (K + 1) % 3;
+				const bool bInside = TriModelY[K] <= RevealY;
+				const bool bNextInside = TriModelY[NextK] <= RevealY;
+				if (bInside)
+				{
+					Polygon.Add(TriView[K]);
+				}
+				if (bInside != bNextInside)
+				{
+					const float T = (RevealY - TriModelY[K]) / (TriModelY[NextK] - TriModelY[K]);
+					Polygon.Add(FMath::Lerp(TriView[K], TriView[NextK], T));
+				}
 			}
-			else if (TriY > RevealY - 0.06f)
+			if (Polygon.Num() < 3)
+			{
+				continue; // entirely above the scan line: not scanned yet
+			}
+			const float MaxTriY = FMath::Max3(TriModelY[0], TriModelY[1], TriModelY[2]);
+			if (MaxTriY > RevealY - 0.05f)
 			{
 				// Bright band where the scan beam is currently writing.
-				Color = StageLerp3(Color, White, 0.65f);
+				Color = StageLerp3(Color, White, 0.6f);
 			}
 		}
+		else
+		{
+			Polygon.Append(TriView, 3);
+		}
+
 		Color = StageLerp3(Palette.Background, Color, StageVisibility);
 		const FColor VertexColor = Color.ToFColor(true);
 
 		const SlateIndex BaseIndex = static_cast<SlateIndex>(Vertices.Num());
-		for (int32 K = 0; K < 3; ++K)
+		for (const FVector3f& P : Polygon)
 		{
-			const FVector3f& P = ViewPositions[Base + static_cast<int32>(Mesh.Indices[Entry.Index * 3 + K])];
 			const float Perspective = StageCameraDistance / FMath::Max(0.5f, StageCameraDistance - P.Z);
 			const FVector2f Local = Center + FVector2f(P.X * Perspective, -P.Y * Perspective) * PixelScale;
 			Vertices.Add(FSlateVertex::Make(RenderTransform, Local, UV, VertexColor));
-			Indices.Add(BaseIndex + K);
+		}
+		for (int32 K = 1; K + 1 < Polygon.Num(); ++K)
+		{
+			Indices.Add(BaseIndex);
+			Indices.Add(BaseIndex + static_cast<SlateIndex>(K));
+			Indices.Add(BaseIndex + static_cast<SlateIndex>(K + 1));
 		}
 	}
 
