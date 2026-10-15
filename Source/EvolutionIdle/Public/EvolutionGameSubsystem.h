@@ -11,6 +11,7 @@
 class USoundWaveProcedural;
 class UAudioComponent;
 class FEvoSteam;
+class UWorld;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEvoStageChanged, int32 /*NewStageIndex*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEvoUpgradeBought, const FString& /*UpgradeId*/);
@@ -142,6 +143,7 @@ private:
 	int32 MusicChannels = 0;
 	int64 MusicReadPos = 0;
 	bool bMusicStarted = false;
+	TWeakObjectPtr<UWorld> MusicWorld;
 	double MusicStartTime = 0.0;
 	double MusicStoppedSince = 0.0;
 

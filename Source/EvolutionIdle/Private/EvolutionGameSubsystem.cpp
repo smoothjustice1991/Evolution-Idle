@@ -463,7 +463,8 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		MusicStoppedSince = 0.0;
 	}
 
-	if (!IsValid(MusicAudio) || MusicAudio->GetWorld() != World)
+	// Track the world ourselves: a component that persists across level transitions has no world of its own.
+	if (!IsValid(MusicAudio) || MusicWorld.Get() != World)
 	{
 		// A procedural wave must only ever feed one playing sound, so each new audio component gets its own wave.
 		if (IsValid(MusicAudio))
@@ -479,7 +480,8 @@ void UEvolutionGameSubsystem::UpdateMusic()
 		// Keep playing while silent (fade-in start, or the Music slider at Off) instead of being culled.
 		MusicWave->VirtualizationMode = EVirtualizationMode::PlayWhenSilent;
 
-		MusicAudio = UGameplayStatics::CreateSound2D(World, MusicWave, 1.f, 1.f, 0.f, nullptr, true, false);
+		MusicAudio = UGameplayStatics::CreateSound2D(World, MusicWave, 1.f, 1.f, 0.f, nullptr, false, false);
+		MusicWorld = World;
 		MusicReadPos = 0;
 		bMusicStarted = false;
 		MusicStoppedSince = 0.0;
