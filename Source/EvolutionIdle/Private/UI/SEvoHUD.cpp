@@ -12,6 +12,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSpacer.h"
+#include "Widgets/Layout/SDPIScaler.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -26,6 +27,9 @@ namespace
 	const FLinearColor TextMain(0.80f, 0.90f, 1.0f, 1.f);
 	const FLinearColor TextMuted(0.30f, 0.42f, 0.52f, 1.f);
 	const FLinearColor TextWarn(1.0f, 0.45f, 0.30f, 1.f);
+
+	// Size multiplier for the next-evolution scanner panel.
+	constexpr float ScannerPanelScale = 1.15f;
 
 	// Escaped so the source stays ASCII.
 	const TCHAR* Dot = TEXT(" · ");
@@ -520,22 +524,26 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolutionArea()
 					.Visibility(EVisibility::HitTestInvisible)
 					.WidthOverride_Lambda([this]() -> FOptionalSize
 					{
-						// Same footprint as the helix drawing (see SEvoHelix::OnPaint), plus breathing room.
+						// Same footprint as the helix drawing (see SEvoHelix::OnPaint), so the panel centres between the strand and the wall.
 						const float Width = Helix.IsValid() ? static_cast<float>(Helix->GetTickSpaceGeometry().GetLocalSize().X) : 800.f;
-						return 2.f * (FMath::Min(Width * 0.2f, 100.f) * 1.08f + 22.f);
+						return 2.f * (FMath::Min(Width * 0.2f, 100.f) * 1.08f + 8.f);
 					})
 				]
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.HAlign(HAlign_Center)
 				.VAlign(VAlign_Center)
-				.Padding(0.f, 0.f, 4.f, 0.f)
 				[
-					SNew(SBox)
-					.MinDesiredWidth(150.f)
-					.MaxDesiredWidth(300.f)
+					// Scaled up 15% as a whole (text, scanner and button), centred between the helix and the walls.
+					SNew(SDPIScaler)
+					.DPIScale(ScannerPanelScale)
 					[
-						BuildEvolvePanel()
+						SNew(SBox)
+						.MinDesiredWidth(150.f)
+						.MaxDesiredWidth(300.f)
+						[
+							BuildEvolvePanel()
+						]
 					]
 				]
 			]
@@ -706,7 +714,7 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolvePanel()
 				.HeightOverride_Lambda([this]() -> FOptionalSize
 				{
 					const float AreaHeight = Helix.IsValid() ? static_cast<float>(Helix->GetTickSpaceGeometry().GetLocalSize().Y) : 400.f;
-					return FMath::Clamp(AreaHeight - 230.f, 90.f, 260.f);
+					return FMath::Clamp(AreaHeight / ScannerPanelScale - 215.f, 80.f, 260.f);
 				})
 				[
 					SNew(SEvoStageModel)
