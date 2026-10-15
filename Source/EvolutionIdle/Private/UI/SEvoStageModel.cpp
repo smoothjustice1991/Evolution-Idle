@@ -677,18 +677,6 @@ int32 SEvoStageModel::PaintScanner(const FGeometry& AllottedGeometry, FSlateWind
 	const EvoMesh::FMesh* Meshes[] = { CurrentMesh.Get() };
 	PaintMeshes(Meshes, 1, Scale, ExtraYaw, Center, PixelScale, Palette, 1.f, AllottedGeometry, OutDrawElements, ModelLayer, RevealY);
 
-	// Scan line at the reveal height (approximate screen position, ignoring perspective)
-	if (!bComplete)
-	{
-		const float LineY = Center.Y - (MeshMinY + Span * ScanProgress) * FMath::Cos(StageViewPitch) * PixelScale * Scale;
-		FLinearColor Beam = StageLerp3(Palette.Primary, FLinearColor::White, 0.5f);
-		Beam.A = 0.85f;
-		Line(FVector2f(6.f, LineY), FVector2f(Size.X - 6.f, LineY), Beam, 1.5f, FxLayer);
-		Beam.A = 0.18f;
-		Line(FVector2f(6.f, LineY - 2.f), FVector2f(Size.X - 6.f, LineY - 2.f), Beam, 3.f, FxLayer);
-		Line(FVector2f(6.f, LineY + 2.f), FVector2f(Size.X - 6.f, LineY + 2.f), Beam, 3.f, FxLayer);
-	}
-
 	// Idle sweep beam travelling up and down the frame
 	if (!bReduced)
 	{
@@ -878,8 +866,8 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 			const float MaxTriY = FMath::Max3(TriModelY[0], TriModelY[1], TriModelY[2]);
 			if (MaxTriY > RevealY - 0.05f)
 			{
-				// Bright band where the scan beam is currently writing.
-				Color = StageLerp3(Color, White, 0.6f);
+				// Soft glow along the freshly revealed edge.
+				Color = StageLerp3(Color, Palette.Secondary, 0.35f);
 			}
 		}
 		else
