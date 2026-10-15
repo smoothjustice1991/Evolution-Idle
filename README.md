@@ -88,8 +88,8 @@ python3 Tools/balance_sim.py              # 0.5 and 3 clicks/sec profiles
 python3 Tools/balance_sim.py --cps 1 5    # custom click rates
 ```
 
-With the current numbers, a payback-greedy player reaches Homo sapiens in about 55 minutes and
-Pure Energy in about 6 hours, and active clicking only shaves a few minutes off, so automation is
+With the current numbers, a payback-greedy player reaches Homo sapiens in about 3.5 hours and
+Pure Energy in about 12 hours (stage prices were raised in v0.2 because the early stages went by too fast), and active clicking only shaves a few minutes off, so automation is
 the main strategy as the GDD intends. Real players will be slower; treat these as starting values.
 
 ## Tests
