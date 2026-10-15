@@ -42,6 +42,7 @@ private:
 	{
 		FVector2f Pos;
 		float Age = 0.f;
+		double Value = 0.0;   // EP shown; rapid clicks add into the newest label instead of stacking new ones
 		FString Text;
 	};
 
@@ -68,7 +69,13 @@ private:
 	TWeakObjectPtr<UEvolutionGameSubsystem> Subsystem;
 
 	float Time = 0.f;
+	/** Displayed swell (0..1); eases toward PulseTarget so rapid clicks give a steady glow instead of a twitch. */
 	float Pulse = 0.f;
+	float PulseTarget = 0.f;
+	/** Helix rotation; spins a little faster while Pulse is up. */
+	float Spin = 0.f;
+	/** Time of the last counted click, used to thin out effects during rapid clicking. */
+	float LastClickTime = -10.f;
 	float Flash = 0.f;
 	TArray<FFloatText> Floaters;
 	TArray<FParticle> Particles;

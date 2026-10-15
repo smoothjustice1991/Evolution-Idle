@@ -82,7 +82,7 @@ void SEvoHelix::GetPalette(FLinearColor& OutPrimary, FLinearColor& OutSecondary)
 void SEvoHelix::PlayEvolveFlash()
 {
 	Flash = 1.f;
-	Pulse = 1.f;
+	PulseTarget = 1.f;
 	if (!IsReducedMotion())
 	{
 		for (int32 Index = 0; Index < 48 && Particles.Num() < MaxParticles; ++Index)
@@ -101,7 +101,7 @@ void SEvoHelix::PlayEvolveFlash()
 
 void SEvoHelix::PlayPurchasePulse()
 {
-	Pulse = FMath::Max(Pulse, 0.5f);
+	PulseTarget = FMath::Max(PulseTarget, 0.5f);
 }
 
 EActiveTimerReturnType SEvoHelix::Animate(double InCurrentTime, float InDeltaTime)
@@ -110,7 +110,10 @@ EActiveTimerReturnType SEvoHelix::Animate(double InCurrentTime, float InDeltaTim
 	const bool bReduced = IsReducedMotion();
 
 	Time += Dt * (bReduced ? 0.25f : 1.f);
-	Pulse = FMath::Max(0.f, Pulse - Dt * 3.5f);
+	// The target jumps up on each click and drains away; the displayed pulse eases toward it.
+	PulseTarget = FMath::Max(0.f, PulseTarget - Dt * 1.6f);
+	Pulse = FMath::FInterpTo(Pulse, PulseTarget, Dt, 12.f);
+	Spin += Dt * (bReduced ? 0.25f : 1.f) * (0.9f + 1.2f * Pulse);
 	Flash = FMath::Max(0.f, Flash - Dt * (bReduced ? 2.5f : 0.9f));
 
 	for (int32 Index = Floaters.Num() - 1; Index >= 0; --Index)
@@ -123,7 +126,7 @@ EActiveTimerReturnType SEvoHelix::Animate(double InCurrentTime, float InDeltaTim
 		}
 		if (F.Age > 1.f)
 		{
-			Floaters.RemoveAtSwap(Index);
+			Floaters.RemoveAt(Index); // keep order: the newest label is always Last()
 		}
 	}
 
@@ -188,22 +191,37 @@ FReply SEvoHelix::HandleClick(const FGeometry& MyGeometry, const FPointerEvent& 
 	const FVector2f Local = FVector2f(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition()));
 	const bool bReduced = IsReducedMotion();
 
-	if (!bReduced)
-	{
-		Pulse = 1.f;
-	}
-
-	if (Floaters.Num() >= MaxFloaters)
-	{
-		Floaters.RemoveAt(0);
-	}
-	FFloatText& Floater = Floaters.AddDefaulted_GetRef();
-	Floater.Pos = Local + FVector2f(Rng.FRandRange(-12.f, 12.f), -10.f);
-	Floater.Text = FString::Printf(TEXT("+%s EP"), *EvoFormat::Number(Gain));
+	const bool bRapid = (Time - LastClickTime) < 0.15f;
+	LastClickTime = Time;
 
 	if (!bReduced)
 	{
-		for (int32 Index = 0; Index < 6 && Particles.Num() < MaxParticles; ++Index)
+		// Each click pushes the swell up a bit; holding a fast click rate settles into a steady glow.
+		PulseTarget = FMath::Min(1.f, PulseTarget + (bRapid ? 0.12f : 0.6f));
+	}
+
+	// Rapid clicks add into the newest label for a moment, so the numbers stay readable.
+	FFloatText* Latest = Floaters.Num() > 0 ? &Floaters.Last() : nullptr;
+	if (Latest && Latest->Age < 0.25f)
+	{
+		Latest->Value += Gain;
+	}
+	else
+	{
+		if (Floaters.Num() >= MaxFloaters)
+		{
+			Floaters.RemoveAt(0);
+		}
+		Latest = &Floaters.AddDefaulted_GetRef();
+		Latest->Pos = Local + FVector2f(Rng.FRandRange(-12.f, 12.f), -10.f);
+		Latest->Value = Gain;
+	}
+	Latest->Text = FString::Printf(TEXT("+%s EP"), *EvoFormat::Number(Latest->Value));
+
+	if (!bReduced)
+	{
+		const int32 NumSparks = bRapid ? 2 : 6;
+		for (int32 Index = 0; Index < NumSparks && Particles.Num() < MaxParticles; ++Index)
 		{
 			FParticle& P = Particles.AddDefaulted_GetRef();
 			const float Angle = Rng.FRandRange(0.f, TwoPi);
@@ -370,7 +388,7 @@ int32 SEvoHelix::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeomet
 		const float R = FMath::Min(Size.X * 0.2f, 100.f) * PulseScale;
 		const float Top = Center.Y - HelixH * 0.5f;
 		const float Turns = 1.7f;
-		const float Phase0 = Time * 0.9f + Pulse * 0.6f;
+		const float Phase0 = Spin;
 
 		if (bEnergyCore)
 		{
