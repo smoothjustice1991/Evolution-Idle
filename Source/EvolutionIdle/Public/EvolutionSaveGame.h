@@ -29,4 +29,10 @@ public:
 	UPROPERTY() bool bReducedMotion = false;
 	UPROPERTY() int32 DisplayMonitor = -1;
 	UPROPERTY() bool bSoundEnabled = true;
+
+	/** Achievement id -> UTC unlock time. Kept when progress is reset. */
+	UPROPERTY() TMap<FString, FDateTime> UnlockedAchievements;
+
+	/** Longest offline period (seconds, after the cap) that paid out EP. Kept when progress is reset. */
+	UPROPERTY() double LongestOfflineSeconds = 0.0;
 };

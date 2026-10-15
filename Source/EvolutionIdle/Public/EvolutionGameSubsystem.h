@@ -5,14 +5,17 @@
 #include "Containers/Ticker.h"
 #include "EvoGameData.h"
 #include "EvoEconomy.h"
+#include "EvoAchievements.h"
 #include "EvolutionGameSubsystem.generated.h"
 
 class USoundWaveProcedural;
 class UAudioComponent;
+class FEvoSteam;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEvoStageChanged, int32 /*NewStageIndex*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEvoUpgradeBought, const FString& /*UpgradeId*/);
 DECLARE_MULTICAST_DELEGATE(FOnEvoProgressReset);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEvoAchievementUnlocked, const FString& /*AchievementId*/);
 
 /**
  * Owns game data, the economy, production ticking, saving and offline earnings.
@@ -56,6 +59,17 @@ public:
 	int32 GetDisplayMonitor() const { return DisplayMonitor; }
 	void SetDisplayMonitor(int32 MonitorIndex);
 
+	// ---- Achievements ----
+	const TArray<FEvoAchievementDef>& GetAchievements() const { return Data.Achievements; }
+	bool IsAchievementUnlocked(const FString& Id) const { return UnlockedAchievements.Contains(Id); }
+	/** UTC unlock time, or FDateTime(0) if locked. */
+	FDateTime GetAchievementUnlockTime(const FString& Id) const;
+	FEvoAchievementProgress GetAchievementProgress(const FEvoAchievementDef& Def) const;
+	int32 GetUnlockedAchievementCount() const;
+	const FEvoAchievementDef* FindAchievement(const FString& Id) const;
+	/** True when unlocks are being mirrored to Steam right now. */
+	bool IsSteamActive() const;
+
 	// ---- Offline report (shown once by the HUD) ----
 	double GetPendingOfflineGain() const { return PendingOfflineGain; }
 	double GetPendingOfflineSeconds() const { return PendingOfflineSeconds; }
@@ -64,6 +78,7 @@ public:
 	FOnEvoStageChanged OnStageChanged;
 	FOnEvoUpgradeBought OnUpgradeBought;
 	FOnEvoProgressReset OnProgressReset;
+	FOnEvoAchievementUnlocked OnAchievementUnlocked;
 
 	static const FString SaveSlotName;
 
@@ -71,6 +86,12 @@ private:
 	bool TickEconomy(float DeltaTime);
 	void LoadGameData();
 	void LoadProgress();
+
+	/** Unlocks every achievement whose condition is now met. Returns true if any unlocked. */
+	bool CheckAchievements(bool bAnnounce = true);
+
+	/** Starts Steam and makes Steam and the save agree on what is unlocked. */
+	void InitSteam();
 
 	/** Loads Content/Audio/evolve.wav (16-bit PCM) into memory. */
 	void LoadSounds();
@@ -101,6 +122,11 @@ private:
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> EvolveAudio;
 	int32 DisplayMonitor = -1;
+
+	TMap<FString, FDateTime> UnlockedAchievements;
+	double LongestOfflineSeconds = 0.0;
+	double AchievementCheckTimer = 0.0;
+	TSharedPtr<FEvoSteam> Steam;
 
 	double PendingOfflineGain = 0.0;
 	double PendingOfflineSeconds = 0.0;

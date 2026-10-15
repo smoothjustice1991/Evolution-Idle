@@ -12,6 +12,7 @@ class FEvoEconomy;
 class SEvoHelix;
 class SScrollBox;
 struct FEvoUpgradeDef;
+struct FEvoAchievementDef;
 
 /**
  * Full-screen game interface built in Slate:
@@ -38,6 +39,10 @@ private:
 	TSharedRef<SWidget> BuildEvolvePanel();
 	TSharedRef<SWidget> BuildUpgradePanel();
 	TSharedRef<SWidget> BuildSettingsOverlay();
+	TSharedRef<SWidget> BuildAchievementsOverlay();
+	TSharedRef<SWidget> BuildAchievementToast();
+	TSharedRef<SWidget> MakeAchievementRow(const FString& AchievementId);
+	void RebuildAchievementList();
 	TSharedRef<SWidget> BuildStatTile(const FText& Label, TAttribute<FText> Value, TAttribute<FText> Tooltip);
 	TSharedRef<SWidget> MakeUpgradeRow(const FString& UpgradeId);
 	void RebuildUpgradeList();
@@ -51,6 +56,7 @@ private:
 	void HandleStageChanged(int32 NewStageIndex);
 	void HandleUpgradeBought(const FString& UpgradeId);
 	void HandleProgressReset();
+	void HandleAchievementUnlocked(const FString& AchievementId);
 	EActiveTimerReturnType TickHud(double InCurrentTime, float InDeltaTime);
 	void ShowBanner(const FText& Title, const FText& Body, float Seconds);
 
@@ -68,6 +74,13 @@ private:
 	int32 BuiltForStageIndex = INDEX_NONE;
 
 	bool bSettingsOpen = false;
+	bool bAchievementsOpen = false;
+	TSharedPtr<SScrollBox> AchievementList;
+
+	// Achievement unlock toasts, shown one at a time.
+	TArray<FString> ToastQueue;
+	FString ToastId;
+	float ToastSeconds = 0.f;
 
 	// Display settings being edited (applied with the Apply button).
 	EWindowMode::Type PendingMode = EWindowMode::Windowed;
@@ -85,12 +98,14 @@ private:
 	FDelegateHandle StageChangedHandle;
 	FDelegateHandle UpgradeBoughtHandle;
 	FDelegateHandle ResetHandle;
+	FDelegateHandle AchievementHandle;
 
 	// Brushes and styles must outlive the widgets that reference them.
 	FSlateColorBrush WhiteBrush;
 	FSlateRoundedBoxBrush PanelBrush;
 	FSlateRoundedBoxBrush TileBrush;
 	FSlateRoundedBoxBrush BannerBrush;
+	FSlateRoundedBoxBrush BadgeBrush;
 	FButtonStyle UpgradeButtonStyle;
 	FButtonStyle PrimaryButtonStyle;
 	FButtonStyle GhostButtonStyle;

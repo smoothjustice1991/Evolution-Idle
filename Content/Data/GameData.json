@@ -65,5 +65,43 @@
 		{ "id": "dyson_lattice",       "era": 5, "unlockStage": 18, "category": "Auto-clicker", "effect": "production", "baseCost": 2000000,  "amount": 270000,  "name": "Dyson Lattice",            "description": "A web of collectors wrapped around a star." },
 		{ "id": "cosmic_harmony",      "era": 5, "unlockStage": 18, "category": "Multiplier",   "effect": "multiplier", "baseCost": 5000000,  "amount": 1,         "costScaling": 4, "name": "Cosmic Harmony", "description": "All matter resonates with you. Doubles base production per level." },
 		{ "id": "galactic_resonator",  "era": 5, "unlockStage": 19, "category": "Auto-clicker", "effect": "production", "baseCost": 10000000, "amount": 1300000, "name": "Galactic Resonator",       "description": "Entire galaxies hum in a single productive chord." }
+	],
+	"achievements": [
+		{ "id": "ACH_STAGE_02", "type": "stage", "target": 2, "name": "Copy That", "description": "Evolve into a Replicating Cell." },
+		{ "id": "ACH_STAGE_03", "type": "stage", "target": 3, "name": "Stronger Together", "description": "Evolve into a Multicellular Organism." },
+		{ "id": "ACH_STAGE_04", "type": "stage", "target": 4, "name": "Into the Deep", "description": "Evolve into Early Aquatic Life." },
+		{ "id": "ACH_STAGE_05", "type": "stage", "target": 5, "name": "Backbone", "description": "Evolve into a Primitive Fish." },
+		{ "id": "ACH_STAGE_06", "type": "stage", "target": 6, "name": "Testing the Waters", "description": "Evolve into an Early Amphibian." },
+		{ "id": "ACH_STAGE_07", "type": "stage", "target": 7, "name": "Cold-Blooded", "description": "Evolve into a Primitive Reptile." },
+		{ "id": "ACH_STAGE_08", "type": "stage", "target": 8, "name": "Warm Blood", "description": "Evolve into an Early Mammal." },
+		{ "id": "ACH_STAGE_09", "type": "stage", "target": 9, "name": "Branching Out", "description": "Evolve into an Early Primate." },
+		{ "id": "ACH_STAGE_10", "type": "stage", "target": 10, "name": "Standing Tall", "description": "Evolve into an Early Hominin." },
+		{ "id": "ACH_STAGE_11", "type": "stage", "target": 11, "name": "Fire Starter", "description": "Evolve into Homo erectus." },
+		{ "id": "ACH_STAGE_12", "type": "stage", "target": 12, "name": "The Wise Ones", "description": "Evolve into Homo sapiens." },
+		{ "id": "ACH_STAGE_13", "type": "stage", "target": 13, "name": "Upgraded", "description": "Evolve into an Enhanced Human." },
+		{ "id": "ACH_STAGE_14", "type": "stage", "target": 14, "name": "Machine Heart", "description": "Evolve into a Cybernetic Human." },
+		{ "id": "ACH_STAGE_15", "type": "stage", "target": 15, "name": "Uploaded", "description": "Evolve into a Digital Consciousness." },
+		{ "id": "ACH_STAGE_16", "type": "stage", "target": 16, "name": "Beyond the Body", "description": "Evolve into a Disembodied Intelligence." },
+		{ "id": "ACH_STAGE_17", "type": "stage", "target": 17, "name": "Radiant", "description": "Evolve into an Energy Form." },
+		{ "id": "ACH_STAGE_18", "type": "stage", "target": 18, "name": "Star Mind", "description": "Evolve into a Stellar Consciousness." },
+		{ "id": "ACH_STAGE_19", "type": "stage", "target": 19, "name": "Cosmic Scale", "description": "Evolve into a Cosmic Entity." },
+		{ "id": "ACH_STAGE_20", "type": "stage", "target": 20, "name": "Ascension", "description": "Complete your final evolution into Pure Energy." },
+
+		{ "id": "ACH_ERA_1", "type": "eraComplete", "target": 1, "name": "Era Complete: The Beginning", "description": "Reach every stage of Era 1: The Beginning." },
+		{ "id": "ACH_ERA_2", "type": "eraComplete", "target": 2, "name": "Era Complete: Life Conquers Land", "description": "Reach every stage of Era 2: Life Conquers Land." },
+		{ "id": "ACH_ERA_3", "type": "eraComplete", "target": 3, "name": "Era Complete: Rise of Humanity", "description": "Reach every stage of Era 3: Rise of Humanity." },
+		{ "id": "ACH_ERA_4", "type": "eraComplete", "target": 4, "name": "Era Complete: Beyond Humanity", "description": "Reach every stage of Era 4: Beyond Humanity." },
+		{ "id": "ACH_ERA_5", "type": "eraComplete", "target": 5, "name": "Era Complete: Transcendence", "description": "Reach every stage of Era 5: Transcendence." },
+
+		{ "id": "ACH_CLICKS_100", "type": "clicks", "target": 100, "name": "Tap Tap", "description": "Click the DNA 100 times." },
+		{ "id": "ACH_CLICKS_1000", "type": "clicks", "target": 1000, "name": "Busy Fingers", "description": "Click the DNA 1,000 times." },
+		{ "id": "ACH_CLICKS_10000", "type": "clicks", "target": 10000, "name": "Relentless", "description": "Click the DNA 10,000 times." },
+		{ "id": "ACH_CLICKS_100000", "type": "clicks", "target": 100000, "name": "Hundred Thousand Sparks", "description": "Click the DNA 100,000 times." },
+
+		{ "id": "ACH_AUTO_10", "type": "autoClickers", "target": 10, "name": "Self-Sustaining", "description": "Own 10 auto-clickers in total." },
+		{ "id": "ACH_AUTO_100", "type": "autoClickers", "target": 100, "name": "Living Factory", "description": "Own 100 auto-clickers in total." },
+		{ "id": "ACH_ALL_UPGRADES", "type": "allUpgrades", "target": 1, "name": "Complete Toolkit", "description": "Buy every upgrade at least once." },
+
+		{ "id": "ACH_OFFLINE_FULL", "type": "offlineFull", "target": 1, "name": "Sleeping Giant", "description": "Collect the full 8 hours of offline earnings." }
 	]
 }

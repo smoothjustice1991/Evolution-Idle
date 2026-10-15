@@ -5,6 +5,7 @@
 #include "EvolutionGameSubsystem.h"
 #include "EvoEconomy.h"
 #include "EvoDisplaySettings.h"
+#include "EvoAchievements.h"
 #include "GenericPlatform/GenericApplication.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/SOverlay.h"
@@ -32,6 +33,9 @@ namespace
 
 	// Size multiplier for the next-evolution scanner panel.
 	constexpr float ScannerPanelScale = 1.15f;
+
+	// How long each achievement toast stays on screen.
+	constexpr float AchievementToastSeconds = 4.f;
 
 	// Escaped so the source stays ASCII.
 	const TCHAR* Dot = TEXT(" · ");
@@ -75,6 +79,7 @@ SEvoHUD::SEvoHUD()
 	, PanelBrush(FLinearColor(0.008f, 0.016f, 0.03f, 0.88f), 12.f, FLinearColor(0.10f, 0.35f, 0.50f, 0.35f), 1.f)
 	, TileBrush(FLinearColor(0.012f, 0.025f, 0.045f, 0.92f), 8.f, FLinearColor(0.10f, 0.30f, 0.45f, 0.25f), 1.f)
 	, BannerBrush(FLinearColor(0.006f, 0.014f, 0.03f, 0.96f), 14.f, FLinearColor(0.30f, 0.80f, 1.0f, 0.65f), 1.5f)
+	, BadgeBrush(FLinearColor::White, 7.f)
 {
 }
 
@@ -85,6 +90,7 @@ SEvoHUD::~SEvoHUD()
 		Sub->OnStageChanged.Remove(StageChangedHandle);
 		Sub->OnUpgradeBought.Remove(UpgradeBoughtHandle);
 		Sub->OnProgressReset.Remove(ResetHandle);
+		Sub->OnAchievementUnlocked.Remove(AchievementHandle);
 	}
 }
 
@@ -294,10 +300,25 @@ void SEvoHUD::Construct(const FArguments& InArgs)
 			]
 		]
 
+		// Achievement unlock toast.
+		+ SOverlay::Slot()
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Bottom)
+		.Padding(0.f, 0.f, 0.f, 28.f)
+		[
+			BuildAchievementToast()
+		]
+
 		// Settings overlay.
 		+ SOverlay::Slot()
 		[
 			BuildSettingsOverlay()
+		]
+
+		// Achievements overlay.
+		+ SOverlay::Slot()
+		[
+			BuildAchievementsOverlay()
 		]
 
 		// Data error message.
@@ -332,6 +353,7 @@ void SEvoHUD::Construct(const FArguments& InArgs)
 		StageChangedHandle = Sub->OnStageChanged.AddSP(this, &SEvoHUD::HandleStageChanged);
 		UpgradeBoughtHandle = Sub->OnUpgradeBought.AddSP(this, &SEvoHUD::HandleUpgradeBought);
 		ResetHandle = Sub->OnProgressReset.AddSP(this, &SEvoHUD::HandleProgressReset);
+		AchievementHandle = Sub->OnAchievementUnlocked.AddSP(this, &SEvoHUD::HandleAchievementUnlocked);
 
 		if (Sub->GetPendingOfflineGain() > 0.0)
 		{
@@ -345,6 +367,7 @@ void SEvoHUD::Construct(const FArguments& InArgs)
 	}
 
 	RebuildUpgradeList();
+	RebuildAchievementList();
 	RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SEvoHUD::TickHud));
 }
 
@@ -449,9 +472,37 @@ TSharedRef<SWidget> SEvoHUD::BuildTopBar()
 			[
 				SNew(SButton)
 				.ButtonStyle(&GhostButtonStyle)
+				.ToolTipText(LOCTEXT("AchievementsTip", "Track your achievements"))
+				.OnClicked_Lambda([this]()
+				{
+					bAchievementsOpen = !bAchievementsOpen;
+					bSettingsOpen = false;
+					bResetArmed = false;
+					return FReply::Handled();
+				})
+				[
+					SNew(STextBlock)
+					.Font(Font("Regular", 12))
+					.ColorAndOpacity(FSlateColor(TextMain))
+					.Text_Lambda([this]()
+					{
+						const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+						const int32 Total = Sub ? Sub->GetAchievements().Num() : 0;
+						return FText::FromString(FString::Printf(TEXT("Achievements  %d/%d"), Sub ? Sub->GetUnlockedAchievementCount() : 0, Total));
+					})
+				]
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(8.f, 0.f, 0.f, 0.f)
+			[
+				SNew(SButton)
+				.ButtonStyle(&GhostButtonStyle)
 				.OnClicked_Lambda([this]()
 				{
 					bSettingsOpen = !bSettingsOpen;
+					bAchievementsOpen = false;
 					bResetArmed = false;
 					if (bSettingsOpen)
 					{
@@ -1494,6 +1545,14 @@ EActiveTimerReturnType SEvoHUD::TickHud(double InCurrentTime, float InDeltaTime)
 {
 	BannerSeconds = FMath::Max(0.f, BannerSeconds - InDeltaTime);
 
+	ToastSeconds = FMath::Max(0.f, ToastSeconds - InDeltaTime);
+	if (ToastSeconds <= 0.f && ToastQueue.Num() > 0)
+	{
+		ToastId = ToastQueue[0];
+		ToastQueue.RemoveAt(0);
+		ToastSeconds = AchievementToastSeconds;
+	}
+
 	if (bResetArmed)
 	{
 		ResetArmSeconds -= InDeltaTime;
@@ -1512,6 +1571,468 @@ EActiveTimerReturnType SEvoHUD::TickHud(double InCurrentTime, float InDeltaTime)
 		}
 	}
 	return EActiveTimerReturnType::Continue;
+}
+
+// ---------------------------------------------------------------------------
+// Achievements
+// ---------------------------------------------------------------------------
+
+namespace
+{
+	const FLinearColor BadgeLocked(0.035f, 0.055f, 0.08f, 1.f);
+
+	/** Section heading for an achievement type. */
+	FText GetAchievementGroup(EEvoAchievementType Type)
+	{
+		switch (Type)
+		{
+		case EEvoAchievementType::Stage:        return LOCTEXT("GroupEvolutions", "EVOLUTIONS");
+		case EEvoAchievementType::EraComplete:  return LOCTEXT("GroupEras", "ERAS");
+		case EEvoAchievementType::Clicks:       return LOCTEXT("GroupClicks", "CLICKING");
+		case EEvoAchievementType::AutoClickers:
+		case EEvoAchievementType::AllUpgrades:  return LOCTEXT("GroupAutomation", "AUTOMATION");
+		case EEvoAchievementType::OfflineFull:  return LOCTEXT("GroupOffline", "OFFLINE");
+		default:                                return LOCTEXT("GroupOther", "OTHER");
+		}
+	}
+
+	/** Short label drawn inside an achievement badge ("7", "E2", "10K", "ALL", "8h"). */
+	FString GetBadgeLabel(const FEvoAchievementDef& Def, double OfflineCapHours)
+	{
+		const int64 Target = static_cast<int64>(FMath::RoundToDouble(Def.Target));
+		switch (Def.GetType())
+		{
+		case EEvoAchievementType::Stage:
+			return FString::Printf(TEXT("%lld"), Target);
+		case EEvoAchievementType::EraComplete:
+			return FString::Printf(TEXT("E%lld"), Target);
+		case EEvoAchievementType::Clicks:
+		case EEvoAchievementType::AutoClickers:
+			if (Target >= 1000000 && Target % 1000000 == 0) { return FString::Printf(TEXT("%lldM"), Target / 1000000); }
+			if (Target >= 1000 && Target % 1000 == 0) { return FString::Printf(TEXT("%lldK"), Target / 1000); }
+			return FString::Printf(TEXT("%lld"), Target);
+		case EEvoAchievementType::AllUpgrades:
+			return TEXT("ALL");
+		case EEvoAchievementType::OfflineFull:
+			return FString::Printf(TEXT("%.0fh"), OfflineCapHours);
+		default:
+			return TEXT("?");
+		}
+	}
+
+	/** "1,234 / 10,000", or durations for the offline achievement. */
+	FString GetProgressLabel(const FEvoAchievementDef& Def, const FEvoAchievementProgress& Progress)
+	{
+		switch (Def.GetType())
+		{
+		case EEvoAchievementType::Stage:
+		case EEvoAchievementType::EraComplete:
+			return FString::Printf(TEXT("Stage %.0f / %.0f"), Progress.Current, Progress.Target);
+		case EEvoAchievementType::OfflineFull:
+			return FString::Printf(TEXT("Longest away: %s / %s"), *EvoFormat::Duration(Progress.Current), *EvoFormat::Duration(Progress.Target));
+		default:
+			return FString::Printf(TEXT("%s / %s"),
+				*FText::AsNumber(static_cast<int64>(FMath::Min(Progress.Current, Progress.Target))).ToString(),
+				*FText::AsNumber(static_cast<int64>(Progress.Target)).ToString());
+		}
+	}
+
+	/** Unlock time in the player's local time zone. */
+	FString FormatUnlockDate(const FDateTime& UtcTime)
+	{
+		const FTimespan LocalOffset = FDateTime::Now() - FDateTime::UtcNow();
+		return (UtcTime + LocalOffset).ToString(TEXT("%b %d, %Y"));
+	}
+}
+
+TSharedRef<SWidget> SEvoHUD::BuildAchievementsOverlay()
+{
+	return SNew(SBorder)
+		.BorderImage(&WhiteBrush)
+		.BorderBackgroundColor(FSlateColor(FLinearColor(0.f, 0.f, 0.f, 0.65f)))
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Center)
+		.Visibility(TAttribute<EVisibility>::CreateLambda([this]() { return bAchievementsOpen ? EVisibility::Visible : EVisibility::Collapsed; }))
+		[
+			SNew(SBox)
+			.WidthOverride(580.f)
+			[
+				SNew(SBorder)
+				.BorderImage(&BannerBrush)
+				.Padding(24.f)
+				[
+					SNew(SVerticalBox)
+					// Title + count
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 8.f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("AchievementsTitle", "ACHIEVEMENTS"))
+							.Font(Font("Bold", 18))
+							.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Font(Font("Bold", 14))
+							.ColorAndOpacity(FSlateColor(TextMain))
+							.Text_Lambda([this]()
+							{
+								const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+								return FText::FromString(FString::Printf(TEXT("%d / %d unlocked"),
+									Sub ? Sub->GetUnlockedAchievementCount() : 0, Sub ? Sub->GetAchievements().Num() : 0));
+							})
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 6.f)
+					[
+						SNew(SBox)
+						.HeightOverride(8.f)
+						[
+							SNew(SProgressBar)
+							.Style(&ProgressStyle)
+							.Percent_Lambda([this]()
+							{
+								const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+								const int32 Total = Sub ? Sub->GetAchievements().Num() : 0;
+								return Total > 0 ? TOptional<float>(static_cast<float>(Sub->GetUnlockedAchievementCount()) / Total) : TOptional<float>(0.f);
+							})
+							.FillColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 12.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Italic", 10))
+						.AutoWrapText(true)
+						.ColorAndOpacity(FSlateColor(TextMuted))
+						.Text_Lambda([this]()
+						{
+							const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+							return (Sub && Sub->IsSteamActive())
+								? LOCTEXT("SteamOn", "Synced with Steam.")
+								: LOCTEXT("SteamOff", "Steam not connected. Achievements are saved with your progress and sync to Steam the next time it is running.");
+						})
+					]
+					// List
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SBox)
+						.HeightOverride(440.f)
+						[
+							SAssignNew(AchievementList, SScrollBox)
+						]
+					]
+					// Close
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.HAlign(HAlign_Right)
+					.Padding(0.f, 14.f, 0.f, 0.f)
+					[
+						SNew(SButton)
+						.ButtonStyle(&PrimaryButtonStyle)
+						.OnClicked_Lambda([this]()
+						{
+							bAchievementsOpen = false;
+							return FReply::Handled();
+						})
+						[
+							Label(LOCTEXT("CloseAchievements", "Close"), 13, TextMain, "Bold")
+						]
+					]
+				]
+			]
+		];
+}
+
+void SEvoHUD::RebuildAchievementList()
+{
+	if (!AchievementList.IsValid())
+	{
+		return;
+	}
+	AchievementList->ClearChildren();
+
+	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+	if (!Sub || !Sub->HasGameData())
+	{
+		return;
+	}
+
+	FString CurrentGroup;
+	bool bFirstGroup = true;
+	for (const FEvoAchievementDef& Def : Sub->GetAchievements())
+	{
+		const FText Group = GetAchievementGroup(Def.GetType());
+		if (bFirstGroup || !Group.ToString().Equals(CurrentGroup))
+		{
+			CurrentGroup = Group.ToString();
+			AchievementList->AddSlot()
+			.Padding(FMargin(2.f, bFirstGroup ? 0.f : 8.f, 0.f, 6.f))
+			[
+				Label(Group, 10, TextMuted, "Bold")
+			];
+			bFirstGroup = false;
+		}
+		AchievementList->AddSlot()
+		.Padding(FMargin(0.f, 0.f, 8.f, 6.f))
+		[
+			MakeAchievementRow(Def.Id)
+		];
+	}
+}
+
+TSharedRef<SWidget> SEvoHUD::MakeAchievementRow(const FString& AchievementId)
+{
+	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+	const FEvoAchievementDef* DefPtr = Sub ? Sub->FindAchievement(AchievementId) : nullptr;
+	if (!DefPtr)
+	{
+		return SNullWidget::NullWidget;
+	}
+	const FEvoAchievementDef Def = *DefPtr;
+	const FString BadgeText = GetBadgeLabel(Def, Sub->GetEconomy().GetData().Economy.OfflineCapHours);
+
+	auto IsUnlocked = [this, AchievementId]()
+	{
+		const UEvolutionGameSubsystem* S = Subsystem.Get();
+		return S && S->IsAchievementUnlocked(AchievementId);
+	};
+	auto GetProgress = [this, Def]()
+	{
+		const UEvolutionGameSubsystem* S = Subsystem.Get();
+		return S ? S->GetAchievementProgress(Def) : FEvoAchievementProgress();
+	};
+
+	return SNew(SBorder)
+		.BorderImage(&TileBrush)
+		.Padding(FMargin(10.f, 8.f))
+		[
+			SNew(SHorizontalBox)
+			// Badge
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 12.f, 0.f)
+			[
+				SNew(SBox)
+				.WidthOverride(40.f)
+				.HeightOverride(40.f)
+				[
+					SNew(SBorder)
+					.BorderImage(&BadgeBrush)
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Center)
+					.BorderBackgroundColor_Lambda([this, IsUnlocked]()
+					{
+						if (!IsUnlocked())
+						{
+							return FSlateColor(BadgeLocked);
+						}
+						FLinearColor Color = GetPrimary();
+						Color.A = 0.9f;
+						return FSlateColor(Color);
+					})
+					[
+						SNew(STextBlock)
+						.Font(Font("Bold", 12))
+						.Text(FText::FromString(BadgeText))
+						.ColorAndOpacity_Lambda([IsUnlocked]()
+						{
+							return FSlateColor(IsUnlocked() ? FLinearColor(0.01f, 0.02f, 0.035f, 1.f) : TextMuted);
+						})
+					]
+				]
+			]
+			// Text + progress
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.FillWidth(1.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Bold", 13))
+						.Text(FText::FromString(Def.Name))
+						.ColorAndOpacity_Lambda([IsUnlocked]() { return FSlateColor(IsUnlocked() ? TextMain : FLinearColor(0.55f, 0.65f, 0.75f, 1.f)); })
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(8.f, 0.f, 0.f, 0.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Regular", 10))
+						.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetSecondary()); })
+						.Visibility(TAttribute<EVisibility>::CreateLambda([IsUnlocked]() { return IsUnlocked() ? EVisibility::HitTestInvisible : EVisibility::Collapsed; }))
+						.Text_Lambda([this, AchievementId]()
+						{
+							const UEvolutionGameSubsystem* S = Subsystem.Get();
+							return S ? FText::FromString(FString::Printf(TEXT("Unlocked %s"), *FormatUnlockDate(S->GetAchievementUnlockTime(AchievementId))))
+								: FText::GetEmpty();
+						})
+					]
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.f, 2.f, 0.f, 0.f)
+				[
+					SNew(STextBlock)
+					.Font(Font("Regular", 11))
+					.AutoWrapText(true)
+					.ColorAndOpacity(FSlateColor(TextMuted))
+					.Text(FText::FromString(Def.Description))
+				]
+				// Progress (locked only)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.f, 6.f, 0.f, 0.f)
+				[
+					SNew(SHorizontalBox)
+					.Visibility(TAttribute<EVisibility>::CreateLambda([IsUnlocked]() { return IsUnlocked() ? EVisibility::Collapsed : EVisibility::Visible; }))
+					+ SHorizontalBox::Slot()
+					.FillWidth(1.f)
+					.VAlign(VAlign_Center)
+					[
+						SNew(SBox)
+						.HeightOverride(6.f)
+						[
+							SNew(SProgressBar)
+							.Style(&ProgressStyle)
+							.Percent_Lambda([GetProgress]() { return TOptional<float>(GetProgress().GetFraction()); })
+							.FillColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary() * FLinearColor(1.f, 1.f, 1.f, 0.75f)); })
+						]
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					.Padding(10.f, 0.f, 0.f, 0.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Regular", 10))
+						.ColorAndOpacity(FSlateColor(TextMuted))
+						.Text_Lambda([GetProgress, Def]() { return FText::FromString(GetProgressLabel(Def, GetProgress())); })
+					]
+				]
+			]
+		];
+}
+
+TSharedRef<SWidget> SEvoHUD::BuildAchievementToast()
+{
+	auto Alpha = [this]()
+	{
+		// Fade in over 0.3 s, out over the last 0.5 s.
+		return FMath::Clamp(FMath::Min((AchievementToastSeconds - ToastSeconds) / 0.3f, ToastSeconds / 0.5f), 0.f, 1.f);
+	};
+
+	return SNew(SBox)
+		.MinDesiredWidth(360.f)
+		.MaxDesiredWidth(520.f)
+		.Visibility(TAttribute<EVisibility>::CreateLambda([this]() { return ToastSeconds > 0.f ? EVisibility::HitTestInvisible : EVisibility::Collapsed; }))
+		[
+			SNew(SBorder)
+			.BorderImage(&BannerBrush)
+			.Padding(FMargin(16.f, 12.f, 22.f, 12.f))
+			.ColorAndOpacity_Lambda([Alpha]() { return FLinearColor(1.f, 1.f, 1.f, Alpha()); })
+			.BorderBackgroundColor_Lambda([Alpha]() { return FSlateColor(FLinearColor(1.f, 1.f, 1.f, Alpha())); })
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(0.f, 0.f, 14.f, 0.f)
+				[
+					SNew(SBox)
+					.WidthOverride(44.f)
+					.HeightOverride(44.f)
+					[
+						SNew(SBorder)
+						.BorderImage(&BadgeBrush)
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						.BorderBackgroundColor_Lambda([this]() { return FSlateColor(GetPrimary()); })
+						[
+							SNew(STextBlock)
+							.Font(Font("Bold", 13))
+							.ColorAndOpacity(FSlateColor(FLinearColor(0.01f, 0.02f, 0.035f, 1.f)))
+							.Text_Lambda([this]()
+							{
+								const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+								const FEvoAchievementDef* Def = Sub ? Sub->FindAchievement(ToastId) : nullptr;
+								return Def ? FText::FromString(GetBadgeLabel(*Def, Sub->GetEconomy().GetData().Economy.OfflineCapHours)) : FText::GetEmpty();
+							})
+						]
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.f)
+				.VAlign(VAlign_Center)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(STextBlock)
+						.Font(Font("Bold", 10))
+						.Text(LOCTEXT("AchievementUnlocked", "ACHIEVEMENT UNLOCKED"))
+						.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetSecondary()); })
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 2.f, 0.f, 0.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Bold", 16))
+						.ColorAndOpacity(FSlateColor(TextMain))
+						.Text_Lambda([this]()
+						{
+							const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+							const FEvoAchievementDef* Def = Sub ? Sub->FindAchievement(ToastId) : nullptr;
+							return Def ? FText::FromString(Def->Name) : FText::GetEmpty();
+						})
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 2.f, 0.f, 0.f)
+					[
+						SNew(STextBlock)
+						.Font(Font("Regular", 11))
+						.AutoWrapText(true)
+						.ColorAndOpacity(FSlateColor(TextMuted))
+						.Text_Lambda([this]()
+						{
+							const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+							const FEvoAchievementDef* Def = Sub ? Sub->FindAchievement(ToastId) : nullptr;
+							return Def ? FText::FromString(Def->Description) : FText::GetEmpty();
+						})
+					]
+				]
+			]
+		];
+}
+
+void SEvoHUD::HandleAchievementUnlocked(const FString& AchievementId)
+{
+	ToastQueue.AddUnique(AchievementId);
 }
 
 #undef LOCTEXT_NAMESPACE

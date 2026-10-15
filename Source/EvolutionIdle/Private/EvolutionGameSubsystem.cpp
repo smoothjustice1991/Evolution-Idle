@@ -1,6 +1,7 @@
 #include "EvolutionGameSubsystem.h"
 #include "EvolutionIdle.h"
 #include "EvolutionSaveGame.h"
+#include "EvoSteam.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/GameInstance.h"
@@ -19,6 +20,9 @@ namespace
 
 	/** Longest single frame we will credit, so a debugger pause or hitch cannot produce absurd jumps. */
 	constexpr double MaxTickSeconds = 60.0;
+
+	/** How often click and production achievements are re-checked. */
+	constexpr double AchievementCheckSeconds = 0.25;
 }
 
 void UEvolutionGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -32,6 +36,7 @@ void UEvolutionGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (bDataValid)
 	{
 		LoadProgress();
+		InitSteam();
 	}
 
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -46,6 +51,12 @@ void UEvolutionGameSubsystem::Deinitialize()
 	if (bDataValid)
 	{
 		SaveNow();
+	}
+
+	if (Steam.IsValid())
+	{
+		Steam->Shutdown();
+		Steam.Reset();
 	}
 
 	Super::Deinitialize();
@@ -92,6 +103,8 @@ void UEvolutionGameSubsystem::LoadProgress()
 	bReducedMotion = Save->bReducedMotion;
 	DisplayMonitor = Save->DisplayMonitor;
 	bSoundEnabled = Save->bSoundEnabled;
+	UnlockedAchievements = Save->UnlockedAchievements;
+	LongestOfflineSeconds = FMath::IsFinite(Save->LongestOfflineSeconds) ? FMath::Max(0.0, Save->LongestOfflineSeconds) : 0.0;
 
 	// Offline earnings: measured from the last save, capped, granted once.
 	// We save immediately afterwards so the same interval can never be claimed again.
@@ -104,9 +117,12 @@ void UEvolutionGameSubsystem::LoadProgress()
 		Economy.Earn(Gain);
 		PendingOfflineGain = Gain;
 		PendingOfflineSeconds = Counted;
+		LongestOfflineSeconds = FMath::Max(LongestOfflineSeconds, Counted);
 		UE_LOG(LogEvolution, Log, TEXT("Offline for %.0fs (counted %.0fs): +%.0f EP"), Elapsed, Counted, Gain);
 	}
 
+	// Catch up on anything earned before achievements existed (or while offline). No toasts at load.
+	CheckAchievements(false);
 	SaveNow();
 }
 
@@ -136,6 +152,8 @@ void UEvolutionGameSubsystem::SaveNow()
 	Save->bReducedMotion = bReducedMotion;
 	Save->DisplayMonitor = DisplayMonitor;
 	Save->bSoundEnabled = bSoundEnabled;
+	Save->UnlockedAchievements = UnlockedAchievements;
+	Save->LongestOfflineSeconds = LongestOfflineSeconds;
 
 	if (!UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex))
 	{
@@ -153,6 +171,18 @@ bool UEvolutionGameSubsystem::TickEconomy(float DeltaTime)
 
 	const double Seconds = FMath::Clamp(static_cast<double>(DeltaTime), 0.0, MaxTickSeconds);
 	Economy.Advance(Seconds);
+
+	AchievementCheckTimer += Seconds;
+	if (AchievementCheckTimer >= AchievementCheckSeconds)
+	{
+		AchievementCheckTimer = 0.0;
+		CheckAchievements();
+	}
+
+	if (Steam.IsValid())
+	{
+		Steam->Tick(DeltaTime);
+	}
 
 	AutosaveTimer += Seconds;
 	if (AutosaveTimer >= Data.Economy.AutosaveSeconds)
@@ -201,6 +231,7 @@ bool UEvolutionGameSubsystem::BuyUpgrade(const FString& UpgradeId)
 		return false;
 	}
 	OnUpgradeBought.Broadcast(UpgradeId);
+	CheckAchievements();
 	return true;
 }
 
@@ -213,6 +244,7 @@ bool UEvolutionGameSubsystem::Evolve()
 	SaveNow();
 	PlayEvolveSound();
 	OnStageChanged.Broadcast(Economy.GetState().StageIndex);
+	CheckAchievements();
 	return true;
 }
 
@@ -366,4 +398,124 @@ void UEvolutionGameSubsystem::ClearOfflineReport()
 {
 	PendingOfflineGain = 0.0;
 	PendingOfflineSeconds = 0.0;
+}
+
+// ---------------------------------------------------------------------------
+// Achievements
+// ---------------------------------------------------------------------------
+
+FDateTime UEvolutionGameSubsystem::GetAchievementUnlockTime(const FString& Id) const
+{
+	const FDateTime* Time = UnlockedAchievements.Find(Id);
+	return Time ? *Time : FDateTime(0);
+}
+
+FEvoAchievementProgress UEvolutionGameSubsystem::GetAchievementProgress(const FEvoAchievementDef& Def) const
+{
+	if (!bDataValid)
+	{
+		return FEvoAchievementProgress();
+	}
+	return EvoAchievements::Evaluate(Def, Economy, LongestOfflineSeconds);
+}
+
+int32 UEvolutionGameSubsystem::GetUnlockedAchievementCount() const
+{
+	int32 Count = 0;
+	for (const FEvoAchievementDef& Def : Data.Achievements)
+	{
+		if (UnlockedAchievements.Contains(Def.Id))
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
+const FEvoAchievementDef* UEvolutionGameSubsystem::FindAchievement(const FString& Id) const
+{
+	return Data.Achievements.FindByPredicate([&Id](const FEvoAchievementDef& Def) { return Def.Id == Id; });
+}
+
+bool UEvolutionGameSubsystem::IsSteamActive() const
+{
+	return Steam.IsValid() && Steam->IsActive();
+}
+
+bool UEvolutionGameSubsystem::CheckAchievements(bool bAnnounce)
+{
+	if (!bDataValid)
+	{
+		return false;
+	}
+
+	TArray<FString> NewlyUnlocked;
+	const FDateTime Now = FDateTime::UtcNow();
+	for (const FEvoAchievementDef& Def : Data.Achievements)
+	{
+		if (UnlockedAchievements.Contains(Def.Id))
+		{
+			continue;
+		}
+		if (EvoAchievements::Evaluate(Def, Economy, LongestOfflineSeconds).IsComplete())
+		{
+			UnlockedAchievements.Add(Def.Id, Now);
+			NewlyUnlocked.Add(Def.Id);
+			UE_LOG(LogEvolution, Log, TEXT("Achievement unlocked: %s (%s)"), *Def.Name, *Def.Id);
+		}
+	}
+
+	if (NewlyUnlocked.Num() == 0)
+	{
+		return false;
+	}
+
+	for (const FString& Id : NewlyUnlocked)
+	{
+		if (Steam.IsValid())
+		{
+			Steam->Unlock(Id);
+		}
+		if (bAnnounce)
+		{
+			OnAchievementUnlocked.Broadcast(Id);
+		}
+	}
+	SaveNow();
+	return true;
+}
+
+void UEvolutionGameSubsystem::InitSteam()
+{
+	Steam = MakeShared<FEvoSteam>();
+	if (!Steam->Init())
+	{
+		return;
+	}
+
+	// Steam is the record across PCs: adopt unlocks from Steam, and send Steam any it is missing
+	// (earned while Steam was not running).
+	const FDateTime Now = FDateTime::UtcNow();
+	bool bChanged = false;
+	for (const FEvoAchievementDef& Def : Data.Achievements)
+	{
+		const bool bLocal = UnlockedAchievements.Contains(Def.Id);
+		if (Steam->IsUnlockedOnSteam(Def.Id))
+		{
+			if (!bLocal)
+			{
+				UnlockedAchievements.Add(Def.Id, Now);
+				bChanged = true;
+			}
+		}
+		else if (bLocal)
+		{
+			Steam->Unlock(Def.Id);
+		}
+	}
+	Steam->Flush();
+	if (bChanged)
+	{
+		SaveNow();
+	}
 }

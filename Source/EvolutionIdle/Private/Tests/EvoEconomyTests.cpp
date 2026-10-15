@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "EvoEconomy.h"
 #include "EvoGameData.h"
+#include "EvoAchievements.h"
 #include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -28,6 +29,14 @@ namespace EvoTest
 			{ "id": "click", "era": 1, "unlockStage": 1, "effect": "click", "baseCost": 500, "amount": 1, "costScaling": 1.5, "name": "Click" },
 			{ "id": "mult", "era": 1, "unlockStage": 1, "effect": "multiplier", "baseCost": 100, "amount": 0.25, "costScaling": 4, "maxLevel": 2, "name": "Mult" },
 			{ "id": "late", "era": 2, "unlockStage": 3, "effect": "production", "baseCost": 10, "amount": 10, "name": "Late" }
+		],
+		"achievements": [
+			{ "id": "ACH_STAGE_2", "type": "stage", "target": 2, "name": "Two" },
+			{ "id": "ACH_ERA_1", "type": "eraComplete", "target": 1, "name": "Era one" },
+			{ "id": "ACH_CLICKS_3", "type": "clicks", "target": 3, "name": "Clicks" },
+			{ "id": "ACH_AUTO_2", "type": "autoClickers", "target": 2, "name": "Auto" },
+			{ "id": "ACH_ALL", "type": "allUpgrades", "target": 1, "name": "All" },
+			{ "id": "ACH_OFFLINE", "type": "offlineFull", "target": 1, "name": "Offline" }
 		]
 	}
 	)JSON");
@@ -205,6 +214,58 @@ bool FEvoSanitizeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Stage clamped"), State.StageIndex, 2);
 	TestFalse(TEXT("Unknown upgrade dropped"), State.Levels.Contains(TEXT("does_not_exist")));
 	TestEqual(TEXT("Level clamped to max"), Econ.GetLevel(TEXT("mult")), 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEvoAchievementTest, "EvolutionIdle.Achievements.Conditions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
+bool FEvoAchievementTest::RunTest(const FString& Parameters)
+{
+	FEvoGameData Data;
+	FEvoEconomy Econ;
+	if (!EvoTest::Setup(*this, Data, Econ)) { return false; }
+
+	TestEqual(TEXT("Achievements loaded"), Data.Achievements.Num(), 6);
+	auto Done = [&Econ, &Data](int32 Index, double Offline = 0.0)
+	{
+		return EvoAchievements::Evaluate(Data.Achievements[Index], Econ, Offline).IsComplete();
+	};
+
+	// Fresh game: nothing unlocked.
+	for (int32 Index = 0; Index < Data.Achievements.Num(); ++Index)
+	{
+		TestFalse(FString::Printf(TEXT("%s locked at start"), *Data.Achievements[Index].Id), Done(Index));
+	}
+
+	// Stage 2 is the last stage of era 1.
+	TestEqual(TEXT("Last stage of era 1"), EvoAchievements::GetLastStageOfEra(Data, 1), 2);
+	Econ.GetState().StageIndex = 1;
+	TestTrue(TEXT("Stage achievement"), Done(0));
+	TestTrue(TEXT("Era complete achievement"), Done(1));
+
+	// Clicks.
+	Econ.Click();
+	Econ.Click();
+	TestFalse(TEXT("2 of 3 clicks"), Done(2));
+	Econ.Click();
+	TestTrue(TEXT("3 clicks"), Done(2));
+
+	// Auto-clickers count every production upgrade's levels.
+	Econ.GetState().Levels.Add(TEXT("unit"), 1);
+	TestFalse(TEXT("1 auto-clicker"), Done(3));
+	Econ.GetState().Levels.Add(TEXT("late"), 1);
+	TestEqual(TEXT("Auto-clicker count"), EvoAchievements::CountAutoClickers(Econ), 2);
+	TestTrue(TEXT("2 auto-clickers"), Done(3));
+
+	// Every upgrade at least once.
+	TestFalse(TEXT("Not every upgrade owned"), Done(4));
+	Econ.GetState().Levels.Add(TEXT("click"), 1);
+	Econ.GetState().Levels.Add(TEXT("mult"), 1);
+	TestTrue(TEXT("Every upgrade owned"), Done(4));
+
+	// Offline: needs the full cap (8h in the test data).
+	TestFalse(TEXT("7h offline is not enough"), Done(5, 7.0 * 3600.0));
+	TestTrue(TEXT("Full 8h offline"), Done(5, 8.0 * 3600.0));
 	return true;
 }
 

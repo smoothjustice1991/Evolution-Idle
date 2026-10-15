@@ -113,6 +113,35 @@ struct EVOLUTIONIDLE_API FEvoUpgradeDef
 	EEvoEffect GetEffect() const;
 };
 
+enum class EEvoAchievementType : uint8
+{
+	Stage,        // reach stage id Target
+	EraComplete,  // reach the last stage of era Target
+	Clicks,       // Target counted manual clicks
+	AutoClickers, // own Target auto-clicker units in total
+	AllUpgrades,  // own at least one level of every upgrade
+	OfflineFull,  // collect a full offline-earnings period (offlineCapHours)
+	Unknown
+};
+
+USTRUCT()
+struct EVOLUTIONIDLE_API FEvoAchievementDef
+{
+	GENERATED_BODY()
+
+	/** Steam achievement API name. Must match the name entered in Steamworks exactly. */
+	UPROPERTY() FString Id;
+	UPROPERTY() FString Name;
+	UPROPERTY() FString Description;
+
+	/** "stage", "eraComplete", "clicks", "autoClickers", "allUpgrades" or "offlineFull". */
+	UPROPERTY() FString Type;
+
+	UPROPERTY() double Target = 0.0;
+
+	EEvoAchievementType GetType() const;
+};
+
 USTRUCT()
 struct EVOLUTIONIDLE_API FEvoGameData
 {
@@ -122,6 +151,7 @@ struct EVOLUTIONIDLE_API FEvoGameData
 	UPROPERTY() TArray<FEvoEraDef> Eras;
 	UPROPERTY() TArray<FEvoStageDef> Stages;
 	UPROPERTY() TArray<FEvoUpgradeDef> Upgrades;
+	UPROPERTY() TArray<FEvoAchievementDef> Achievements;
 
 	const FEvoEraDef* FindEra(int32 EraId) const;
 	double GetEraCostMultiplier(int32 EraId) const;

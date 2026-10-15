@@ -13,5 +13,14 @@
 				"CoreUObject"
 			]
 		}
+	],
+	"Plugins": [
+		{
+			"Name": "SteamShared",
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
 	]
 }

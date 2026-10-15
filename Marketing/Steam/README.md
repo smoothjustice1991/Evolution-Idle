@@ -30,5 +30,6 @@ pixels, flattened onto the art's deep navy). The library logo keeps its transpar
 |---|---|---|
 | Screenshots | at least 1920 × 1080, 16:9 | At least 5 for the store page |
 | Page background | 1438 × 810 | Optional, subtle and dark |
+| Achievement icons | 64 × 64, two per achievement (achieved + unachieved) | 32 achievements, see `Docs/Steam_Achievements.md` |
 
 Sizes from the Steamworks documentation: https://partner.steamgames.com/doc/store/assets

@@ -51,7 +51,8 @@ automatically (see `Config/DefaultGame.ini`).
 | Evolve sound (`Content/Audio/evolve.wav`, loaded by code) with a Sound effects on/off setting | Done |
 | Unreal's default splash image disabled (`WindowsApplication.ShowSplash=0`) | Done |
 | Era production bonus (+10% at stages 5, 9, 13, 17) | Done (set to 0 in data to disable) |
-| Critical clicks, combos, achievements, sound, Cosmic Rebirth prestige | Not yet (roadmap phase 4 / post-MVP) |
+| 32 achievements (every evolution, every era, clicks, automation, full offline period) with an in-game Achievements panel and unlock toasts; unlocks mirror to Steam ([setup](Docs/Steam_Achievements.md)) | Done |
+| Critical clicks, combos, Cosmic Rebirth prestige | Not yet (roadmap phase 4 / post-MVP) |
 
 ## Project layout
 
@@ -63,7 +64,9 @@ Source/EvolutionIdle/
   Public/EvolutionGameSubsystem.h Ticking, saving, offline earnings, player actions
   Public/EvolutionSaveGame.h      Persisted state
   Public/EvolutionGameMode.h      Game mode, player controller, HUD actor
-  Private/UI/SEvoHUD.*            Slate interface (status bar, evolve panel, upgrade panel, settings)
+  Public/EvoAchievements.h        Achievement conditions (pure, unit tested)
+  Private/EvoSteam.*              Mirrors achievement unlocks to Steam (Steamworks SDK via SteamShared)
+  Private/UI/SEvoHUD.*            Slate interface (status bar, evolve panel, upgrade panel, settings, achievements)
   Private/UI/SEvoHelix.*          Animated, clickable helix / energy sphere
   Private/UI/EvoStageMeshes.*     Procedural 3D models for the 20 stages (plain C++)
   Private/UI/SEvoStageModel.*     Draws the floating stage model (CPU-shaded Slate triangles)
@@ -103,7 +106,8 @@ the main strategy as the GDD intends. Real players will be slower; treat these a
 
 In the editor open **Tools > Session Frontend > Automation**, filter for `EvolutionIdle`, and run.
 The tests cover click income, purchase deduction, blocked purchases, scaling formula, evolution
-purchases, lifetime EP never decreasing, production over time, the offline cap, and save sanitizing.
+purchases, lifetime EP never decreasing, production over time, the offline cap, save sanitizing, and
+achievement conditions.
 
 ## Design decisions taken for the open questions (GDD section 16)
 

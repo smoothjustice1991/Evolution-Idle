@@ -49,6 +49,26 @@ EEvoEffect FEvoUpgradeDef::GetEffect() const
 	return EEvoEffect::Unknown;
 }
 
+EEvoAchievementType FEvoAchievementDef::GetType() const
+{
+	static const TPair<const TCHAR*, EEvoAchievementType> Names[] = {
+		{ TEXT("stage"), EEvoAchievementType::Stage },
+		{ TEXT("eraComplete"), EEvoAchievementType::EraComplete },
+		{ TEXT("clicks"), EEvoAchievementType::Clicks },
+		{ TEXT("autoClickers"), EEvoAchievementType::AutoClickers },
+		{ TEXT("allUpgrades"), EEvoAchievementType::AllUpgrades },
+		{ TEXT("offlineFull"), EEvoAchievementType::OfflineFull },
+	};
+	for (const TPair<const TCHAR*, EEvoAchievementType>& Entry : Names)
+	{
+		if (Type.Equals(Entry.Key, ESearchCase::IgnoreCase))
+		{
+			return Entry.Value;
+		}
+	}
+	return EEvoAchievementType::Unknown;
+}
+
 const FEvoEraDef* FEvoGameData::FindEra(int32 EraId) const
 {
 	return Eras.FindByPredicate([EraId](const FEvoEraDef& Era) { return Era.Id == EraId; });
@@ -125,6 +145,24 @@ bool FEvoGameData::Finalize(TArray<FString>& OutErrors)
 		{
 			OutErrors.Add(FString::Printf(TEXT("Upgrade '%s' cost scaling below 1; using default."), *Upgrade.Id));
 			Upgrade.CostScaling = 0.0;
+		}
+	}
+
+	// Achievements are optional; bad entries are dropped rather than blocking the game.
+	TSet<FString> SeenAchievements;
+	for (int32 Index = Achievements.Num() - 1; Index >= 0; --Index)
+	{
+		const FEvoAchievementDef& Achievement = Achievements[Index];
+		bool bDuplicate = false;
+		if (!Achievement.Id.IsEmpty())
+		{
+			SeenAchievements.Add(Achievement.Id, &bDuplicate);
+		}
+		if (Achievement.Id.IsEmpty() || bDuplicate || Achievement.GetType() == EEvoAchievementType::Unknown)
+		{
+			OutErrors.Add(FString::Printf(TEXT("Achievement '%s' (%s) has no id, a duplicate id or an unknown type '%s'; ignoring it."),
+				*Achievement.Name, *Achievement.Id, *Achievement.Type));
+			Achievements.RemoveAt(Index);
 		}
 	}
 
