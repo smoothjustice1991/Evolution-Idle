@@ -502,6 +502,43 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolutionArea()
 				SAssignNew(Helix, SEvoHelix)
 				.Subsystem(Subsystem)
 			]
+			// Next-evolution scanner in the gap to the right of the helix.
+			+ SOverlay::Slot()
+			[
+				SNew(SHorizontalBox)
+				.Visibility(EVisibility::SelfHitTestInvisible)
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.f)
+				[
+					SNew(SSpacer)
+					.Visibility(EVisibility::HitTestInvisible)
+				]
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				[
+					SNew(SBox)
+					.Visibility(EVisibility::HitTestInvisible)
+					.WidthOverride_Lambda([this]() -> FOptionalSize
+					{
+						// Same footprint as the helix drawing (see SEvoHelix::OnPaint), plus breathing room.
+						const float Width = Helix.IsValid() ? static_cast<float>(Helix->GetTickSpaceGeometry().GetLocalSize().X) : 800.f;
+						return 2.f * (FMath::Min(Width * 0.2f, 100.f) * 1.08f + 22.f);
+					})
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.f)
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
+				.Padding(0.f, 0.f, 4.f, 0.f)
+				[
+					SNew(SBox)
+					.MinDesiredWidth(150.f)
+					.MaxDesiredWidth(300.f)
+					[
+						BuildEvolvePanel()
+					]
+				]
+			]
 		]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -522,14 +559,8 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolutionArea()
 		]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		.Padding(0.f, 0.f, 0.f, 10.f)
 		[
 			BuildProductionSummary()
-		]
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		[
-			BuildEvolvePanel()
 		];
 }
 
@@ -613,11 +644,30 @@ TSharedRef<SWidget> SEvoHUD::BuildProductionSummary()
 
 TSharedRef<SWidget> SEvoHUD::BuildEvolvePanel()
 {
+	// Next-evolution panel that sits in the gap to the right of the helix:
+	// a holographic scanner of the next form, progress toward its price, and the EVOLVE button.
+	auto NextStage = [this]() -> const FEvoStageDef*
+	{
+		const FEvoEconomy* Econ = GetEconomy();
+		return Econ ? Econ->GetNextStage() : nullptr;
+	};
+	auto Progress = [this]() -> float
+	{
+		const FEvoEconomy* Econ = GetEconomy();
+		const FEvoStageDef* Next = Econ ? Econ->GetNextStage() : nullptr;
+		if (!Next)
+		{
+			return 1.f;
+		}
+		return Next->Cost <= 0.0 ? 1.f : static_cast<float>(FMath::Clamp(Econ->GetState().CurrentEP / Next->Cost, 0.0, 1.0));
+	};
+
 	return SNew(SBorder)
 		.BorderImage(&PanelBrush)
-		.Padding(FMargin(18.f, 14.f))
+		.Padding(FMargin(14.f, 12.f))
 		[
 			SNew(SVerticalBox)
+			// Header
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			[
@@ -625,6 +675,157 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolvePanel()
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.f)
 				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Font(Font("Bold", 10))
+					.ColorAndOpacity(FSlateColor(TextMuted))
+					.Text_Lambda([NextStage]()
+					{
+						return NextStage() ? LOCTEXT("ScanHeader", "SCANNING NEXT FORM") : LOCTEXT("ScanDone", "FINAL FORM");
+					})
+				]
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Font(Font("Bold", 10))
+					.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+					.Text_Lambda([Progress]()
+					{
+						return FText::FromString(FString::Printf(TEXT("%d%%"), FMath::FloorToInt(Progress() * 100.f)));
+					})
+				]
+			]
+			// Scanner
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.f, 6.f)
+			[
+				SNew(SBox)
+				.HeightOverride_Lambda([this]() -> FOptionalSize
+				{
+					const float AreaHeight = Helix.IsValid() ? static_cast<float>(Helix->GetTickSpaceGeometry().GetLocalSize().Y) : 400.f;
+					return FMath::Clamp(AreaHeight - 230.f, 90.f, 260.f);
+				})
+				[
+					SNew(SEvoStageModel)
+					.Subsystem(Subsystem)
+					.ScannerMode(true)
+				]
+			]
+			// Next stage name
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				SNew(STextBlock)
+				.Font(Font("Bold", 15))
+				.ColorAndOpacity(FSlateColor(TextMain))
+				.AutoWrapText(true)
+				.Text_Lambda([this, NextStage]()
+				{
+					const FEvoStageDef* Next = NextStage();
+					if (!Next)
+					{
+						const FEvoEconomy* Econ = GetEconomy();
+						const FEvoStageDef* Current = Econ ? Econ->GetCurrentStage() : nullptr;
+						return Current ? FText::FromString(Current->Name) : FText::GetEmpty();
+					}
+					return FText::FromString(Next->Name);
+				})
+			]
+			// Progress bar
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.f, 6.f, 0.f, 4.f)
+			[
+				SNew(SBox)
+				.HeightOverride(10.f)
+				[
+					SNew(SProgressBar)
+					.Style(&ProgressStyle)
+					.Percent_Lambda([Progress]() -> TOptional<float> { return Progress(); })
+					.FillColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+				]
+			]
+			// Have / need
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				SNew(STextBlock)
+				.Font(Font("Bold", 12))
+				.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
+				.Text_Lambda([this, NextStage]()
+				{
+					const FEvoEconomy* Econ = GetEconomy();
+					const FEvoStageDef* Next = NextStage();
+					if (!Econ || !Next)
+					{
+						return FText::GetEmpty();
+					}
+					return FText::FromString(FString::Printf(TEXT("%s / %s EP"),
+						*EvoFormat::Number(FMath::Min(Econ->GetState().CurrentEP, Next->Cost)), *EvoFormat::Cost(Next->Cost)));
+				})
+			]
+			// Status
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.f, 2.f, 0.f, 8.f)
+			[
+				SNew(STextBlock)
+				.Font(Font("Regular", 11))
+				.AutoWrapText(true)
+				.ColorAndOpacity_Lambda([this]()
+				{
+					const FEvoEconomy* Econ = GetEconomy();
+					return FSlateColor((Econ && Econ->CanEvolve()) ? GetSecondary() : TextMuted);
+				})
+				.Text_Lambda([this]()
+				{
+					const FEvoEconomy* Econ = GetEconomy();
+					if (!Econ)
+					{
+						return FText::GetEmpty();
+					}
+					const FEvoStageDef* Next = Econ->GetNextStage();
+					if (!Next)
+					{
+						return LOCTEXT("Complete", "The campaign is complete. You have become a sphere of pure energy.");
+					}
+					if (Econ->CanEvolve())
+					{
+						return LOCTEXT("Ready", "Scan complete. Evolving spends the full price from your current EP.");
+					}
+					const double Shortfall = Next->Cost - Econ->GetState().CurrentEP;
+					const double Rate = Econ->GetEPPerSecond();
+					if (Rate > 0.0)
+					{
+						return FText::FromString(FString::Printf(TEXT("Need %s more%sabout %s"),
+							*EvoFormat::Cost(Shortfall), Dot, *EvoFormat::Duration(Shortfall / Rate)));
+					}
+					return FText::FromString(FString::Printf(TEXT("Need %s more EP"), *EvoFormat::Cost(Shortfall)));
+				})
+			]
+			// Evolve button
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				SNew(SButton)
+				.ButtonStyle(&PrimaryButtonStyle)
+				.HAlign(HAlign_Center)
+				.IsEnabled(TAttribute<bool>::CreateLambda([this]()
+				{
+					const FEvoEconomy* Econ = GetEconomy();
+					return Econ && Econ->CanEvolve();
+				}))
+				.OnClicked_Lambda([this]()
+				{
+					if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+					{
+						Sub->Evolve();
+					}
+					return FReply::Handled();
+				})
 				[
 					SNew(STextBlock)
 					.Font(Font("Bold", 14))
@@ -632,124 +833,8 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolvePanel()
 					.Text_Lambda([this]()
 					{
 						const FEvoEconomy* Econ = GetEconomy();
-						const FEvoStageDef* Next = Econ ? Econ->GetNextStage() : nullptr;
-						if (!Next)
-						{
-							return LOCTEXT("FinalForm", "FINAL FORM REACHED");
-						}
-						return FText::FromString(FString::Printf(TEXT("NEXT EVOLUTION: %s"), *Next->Name.ToUpper()));
+						return (Econ && Econ->IsCampaignComplete()) ? LOCTEXT("Done", "COMPLETE") : LOCTEXT("Evolve", "EVOLVE");
 					})
-				]
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
-					.Font(Font("Bold", 14))
-					.ColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
-					.Text_Lambda([this]()
-					{
-						const FEvoEconomy* Econ = GetEconomy();
-						const FEvoStageDef* Next = Econ ? Econ->GetNextStage() : nullptr;
-						return Next ? FText::FromString(EvoFormat::Cost(Next->Cost) + TEXT(" EP")) : FText::GetEmpty();
-					})
-				]
-			]
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0.f, 8.f)
-			[
-				SNew(SBox)
-				.HeightOverride(10.f)
-				[
-					SNew(SProgressBar)
-					.Style(&ProgressStyle)
-					.Percent_Lambda([this]() -> TOptional<float>
-					{
-						const FEvoEconomy* Econ = GetEconomy();
-						const FEvoStageDef* Next = Econ ? Econ->GetNextStage() : nullptr;
-						if (!Next)
-						{
-							return 1.f;
-						}
-						return Next->Cost <= 0.0 ? 1.f : static_cast<float>(FMath::Clamp(Econ->GetState().CurrentEP / Next->Cost, 0.0, 1.0));
-					})
-					.FillColorAndOpacity_Lambda([this]() { return FSlateColor(GetPrimary()); })
-				]
-			]
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.f)
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
-					.Font(Font("Regular", 12))
-					.AutoWrapText(true)
-					.ColorAndOpacity_Lambda([this]()
-					{
-						const FEvoEconomy* Econ = GetEconomy();
-						return FSlateColor((Econ && Econ->CanEvolve()) ? GetSecondary() : TextMuted);
-					})
-					.Text_Lambda([this]()
-					{
-						const FEvoEconomy* Econ = GetEconomy();
-						if (!Econ)
-						{
-							return FText::GetEmpty();
-						}
-						const FEvoStageDef* Next = Econ->GetNextStage();
-						if (!Next)
-						{
-							return LOCTEXT("Complete", "The campaign is complete. You have become a sphere of pure energy.");
-						}
-						if (Econ->CanEvolve())
-						{
-							return LOCTEXT("Ready", "Ready to evolve! Evolving spends the full price from your current EP.");
-						}
-						const double Shortfall = Next->Cost - Econ->GetState().CurrentEP;
-						const double Rate = Econ->GetEPPerSecond();
-						if (Rate > 0.0)
-						{
-							return FText::FromString(FString::Printf(TEXT("Need %s more EP%sabout %s at current production"),
-								*EvoFormat::Cost(Shortfall), Dot, *EvoFormat::Duration(Shortfall / Rate)));
-						}
-						return FText::FromString(FString::Printf(TEXT("Need %s more EP%sclick the helix or buy an auto-clicker"),
-							*EvoFormat::Cost(Shortfall), Dot));
-					})
-				]
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(12.f, 0.f, 0.f, 0.f)
-				[
-					SNew(SButton)
-					.ButtonStyle(&PrimaryButtonStyle)
-					.IsEnabled(TAttribute<bool>::CreateLambda([this]()
-					{
-						const FEvoEconomy* Econ = GetEconomy();
-						return Econ && Econ->CanEvolve();
-					}))
-					.OnClicked_Lambda([this]()
-					{
-						if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
-						{
-							Sub->Evolve();
-						}
-						return FReply::Handled();
-					})
-					[
-						SNew(STextBlock)
-						.Font(Font("Bold", 14))
-						.ColorAndOpacity(FSlateColor(TextMain))
-						.Text_Lambda([this]()
-						{
-							const FEvoEconomy* Econ = GetEconomy();
-							return (Econ && Econ->IsCampaignComplete()) ? LOCTEXT("Done", "COMPLETE") : LOCTEXT("Evolve", "EVOLVE");
-						})
-					]
 				]
 			]
 		];

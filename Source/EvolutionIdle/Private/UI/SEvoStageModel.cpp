@@ -64,10 +64,12 @@ SEvoStageModel::~SEvoStageModel()
 void SEvoStageModel::Construct(const FArguments& InArgs)
 {
 	Subsystem = InArgs._Subsystem;
+	bScannerMode = InArgs._ScannerMode;
 	WhiteBrush = FCoreStyle::Get().GetBrush("GenericWhiteBox");
 	SetVisibility(EVisibility::HitTestInvisible);
 
-	if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+	UEvolutionGameSubsystem* SubForEvents = bScannerMode ? nullptr : Subsystem.Get();
+	if (UEvolutionGameSubsystem* Sub = SubForEvents)
 	{
 		UpgradeBoughtHandle = Sub->OnUpgradeBought.AddSP(this, &SEvoStageModel::HandleUpgradeBought);
 	}
@@ -87,8 +89,29 @@ int32 SEvoStageModel::GetStageId() const
 	{
 		return 0;
 	}
-	const FEvoStageDef* Stage = Sub->GetEconomy().GetCurrentStage();
+	const FEvoEconomy& Econ = Sub->GetEconomy();
+	const FEvoStageDef* Stage = Econ.GetCurrentStage();
+	if (bScannerMode && Econ.GetNextStage())
+	{
+		Stage = Econ.GetNextStage();
+	}
 	return Stage ? Stage->Id : 0;
+}
+
+float SEvoStageModel::GetScanTarget() const
+{
+	const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+	if (!Sub || !Sub->HasGameData())
+	{
+		return 0.f;
+	}
+	const FEvoEconomy& Econ = Sub->GetEconomy();
+	const FEvoStageDef* Next = Econ.GetNextStage();
+	if (!Next || Next->Cost <= 0.0)
+	{
+		return 1.f;
+	}
+	return static_cast<float>(FMath::Clamp(Econ.GetState().CurrentEP / Next->Cost, 0.0, 1.0));
 }
 
 bool SEvoStageModel::IsReducedMotion() const
@@ -252,6 +275,13 @@ EActiveTimerReturnType SEvoStageModel::Animate(double InCurrentTime, float InDel
 			MeshMaxY = FMath::Max(MeshMaxY, P.Y);
 		}
 		Transition = (bFirst || bReduced) ? 1.f : 0.f;
+		ScanProgress = GetScanTarget();
+	}
+
+	if (bScannerMode)
+	{
+		const float Target = GetScanTarget();
+		ScanProgress += (Target - ScanProgress) * FMath::Min(1.f, Dt * 5.f);
 	}
 
 	if (Transition < 1.f)
@@ -410,6 +440,11 @@ int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 	if (Size.X < 40.f || Size.Y < 40.f || !CurrentMesh.IsValid())
 	{
 		return LayerId;
+	}
+
+	if (bScannerMode)
+	{
+		return PaintScanner(AllottedGeometry, OutDrawElements, LayerId);
 	}
 
 	const bool bReduced = IsReducedMotion();
@@ -574,8 +609,102 @@ void SEvoStageModel::PaintEffects(const FVector2f& Center, float Radius, float L
 	}
 }
 
+int32 SEvoStageModel::PaintScanner(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const
+{
+	const FVector2f Size = FVector2f(AllottedGeometry.GetLocalSize());
+	const FPalette Palette = GetPalette();
+	const bool bReduced = IsReducedMotion();
+
+	const int32 BackLayer = LayerId;
+	const int32 ModelLayer = LayerId + 1;
+	const int32 FxLayer = LayerId + 2;
+
+	auto Line = [&](const FVector2f& A, const FVector2f& B, const FLinearColor& Color, float Thickness, int32 Layer)
+	{
+		TArray<FVector2f> Points;
+		Points.Add(A);
+		Points.Add(B);
+		FSlateDrawElement::MakeLines(OutDrawElements, Layer, AllottedGeometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, Thickness);
+	};
+
+	// Backdrop grid
+	FLinearColor GridColor = Palette.Primary;
+	GridColor.A = 0.07f;
+	constexpr float GridStep = 16.f;
+	for (float X = FMath::Fmod(Size.X * 0.5f, GridStep); X < Size.X; X += GridStep)
+	{
+		Line(FVector2f(X, 0.f), FVector2f(X, Size.Y), GridColor, 1.f, BackLayer);
+	}
+	for (float Y = FMath::Fmod(Size.Y * 0.5f, GridStep); Y < Size.Y; Y += GridStep)
+	{
+		Line(FVector2f(0.f, Y), FVector2f(Size.X, Y), GridColor, 1.f, BackLayer);
+	}
+
+	// Corner brackets
+	FLinearColor Bracket = Palette.Primary;
+	Bracket.A = 0.75f;
+	const float Len = FMath::Min(16.f, FMath::Min(Size.X, Size.Y) * 0.15f);
+	const float Inset = 2.f;
+	const FVector2f Corners[4] = { {Inset, Inset}, {Size.X - Inset, Inset}, {Inset, Size.Y - Inset}, {Size.X - Inset, Size.Y - Inset} };
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		const FVector2f C = Corners[Index];
+		const float Dx = (Index % 2 == 0) ? Len : -Len;
+		const float Dy = (Index < 2) ? Len : -Len;
+		Line(C, C + FVector2f(Dx, 0.f), Bracket, 2.f, FxLayer);
+		Line(C, C + FVector2f(0.f, Dy), Bracket, 2.f, FxLayer);
+	}
+
+	if (!CurrentMesh.IsValid() || Size.X < 20.f || Size.Y < 20.f)
+	{
+		return FxLayer;
+	}
+
+	// Model
+	const float PixelScale = FMath::Min(Size.X, Size.Y) * 0.5f / 1.38f;
+	const FVector2f Center(Size.X * 0.5f, Size.Y * 0.52f);
+	const bool bComplete = ScanProgress >= 0.999f;
+	const float Span = FMath::Max(0.01f, MeshMaxY - MeshMinY);
+	const float RevealY = bComplete ? TNumericLimits<float>::Max() : MeshMinY + Span * ScanProgress;
+
+	float Scale = 1.f;
+	float ExtraYaw = 0.f;
+	if (Transition < 1.f)
+	{
+		Scale = FMath::Max(0.01f, StageEaseOutBack(Transition));
+		ExtraYaw = (1.f - Transition) * -3.f;
+	}
+	const EvoMesh::FMesh* Meshes[] = { CurrentMesh.Get() };
+	PaintMeshes(Meshes, 1, Scale, ExtraYaw, Center, PixelScale, Palette, 1.f, AllottedGeometry, OutDrawElements, ModelLayer, RevealY);
+
+	// Scan line at the reveal height (approximate screen position, ignoring perspective)
+	if (!bComplete)
+	{
+		const float LineY = Center.Y - (MeshMinY + Span * ScanProgress) * FMath::Cos(StageViewPitch) * PixelScale * Scale;
+		FLinearColor Beam = StageLerp3(Palette.Primary, FLinearColor::White, 0.5f);
+		Beam.A = 0.85f;
+		Line(FVector2f(6.f, LineY), FVector2f(Size.X - 6.f, LineY), Beam, 1.5f, FxLayer);
+		Beam.A = 0.18f;
+		Line(FVector2f(6.f, LineY - 2.f), FVector2f(Size.X - 6.f, LineY - 2.f), Beam, 3.f, FxLayer);
+		Line(FVector2f(6.f, LineY + 2.f), FVector2f(Size.X - 6.f, LineY + 2.f), Beam, 3.f, FxLayer);
+	}
+
+	// Idle sweep beam travelling up and down the frame
+	if (!bReduced)
+	{
+		const float Sweep = 0.5f + 0.5f * FMath::Sin(Time * 1.3f);
+		const float SweepY = 6.f + (Size.Y - 12.f) * Sweep;
+		FLinearColor SweepColor = Palette.Secondary;
+		SweepColor.A = 0.22f;
+		Line(FVector2f(4.f, SweepY), FVector2f(Size.X - 4.f, SweepY), SweepColor, 1.f, FxLayer);
+	}
+
+	return FxLayer;
+}
+
 void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes, float Scale, float ExtraYaw, const FVector2f& Center, float PixelScale,
-	const FPalette& Palette, float AccentBoost, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const
+	const FPalette& Palette, float AccentBoost, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer,
+	float RevealY) const
 {
 	if (Scale <= 0.f || NumMeshes <= 0)
 	{
@@ -711,6 +840,22 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 		{
 			// Purchase flash: tint toward the upgrade colour, strongest on edges facing away from the light.
 			Color = StageLerp3(Color, FlashColor, Flash * (0.25f + 0.35f * (1.f - Diffuse)));
+		}
+		if (RevealY < TNumericLimits<float>::Max())
+		{
+			const float TriY = (Mesh.Positions[Mesh.Indices[Entry.Index * 3]].Y
+				+ Mesh.Positions[Mesh.Indices[Entry.Index * 3 + 1]].Y
+				+ Mesh.Positions[Mesh.Indices[Entry.Index * 3 + 2]].Y) / 3.f;
+			if (TriY > RevealY)
+			{
+				// Not scanned yet: a dim holographic ghost.
+				Color = StageLerp3(Palette.Background, Palette.Primary, 0.12f + 0.2f * Diffuse);
+			}
+			else if (TriY > RevealY - 0.06f)
+			{
+				// Bright band where the scan beam is currently writing.
+				Color = StageLerp3(Color, White, 0.65f);
+			}
 		}
 		Color = StageLerp3(Palette.Background, Color, StageVisibility);
 		const FColor VertexColor = Color.ToFColor(true);

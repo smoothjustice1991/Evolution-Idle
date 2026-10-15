@@ -35,6 +35,7 @@ automatically (see `Config/DefaultGame.ini`).
 | Spend-to-evolve: stage price deducted from **current** EP (GDD 3.2) | Done |
 | All 20 stages and 5 eras as data, era-coloured theme | Done |
 | Floating low-poly 3D model of the current stage behind the helix (20 models, morphs on evolve) | Done |
+| Next-evolution panel right of the helix: holographic scanner of the next form (revealed bottom-up as EP approaches its price), progress bar, EVOLVE button | Done |
 | Upgrade indicators on the model: orbiting crystals (auto-clickers), crown shards (click power), gold pedestal halos (multipliers), flash + shockwave + sparks + "+1 name" on purchase | Done |
 | Helix visuals change: organic helix (1-12), circuit helix (13-16), energy core (17-19), sphere of pure energy (20) | Done (procedural placeholder art) |
 | 24 upgrades across all eras: auto-clickers, click power, multipliers | Done |

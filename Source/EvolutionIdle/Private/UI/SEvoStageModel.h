@@ -26,8 +26,12 @@ struct FSlateBrush;
 class SEvoStageModel : public SLeafWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SEvoStageModel) {}
+	SLATE_BEGIN_ARGS(SEvoStageModel)
+		: _ScannerMode(false)
+	{}
 		SLATE_ARGUMENT(TWeakObjectPtr<UEvolutionGameSubsystem>, Subsystem)
+		/** Scanner mode: shows the NEXT stage as a hologram that is revealed bottom-up as EP approaches its price. */
+		SLATE_ARGUMENT(bool, ScannerMode)
 	SLATE_END_ARGS()
 
 	SEvoStageModel();
@@ -100,8 +104,13 @@ private:
 	/** Builds this frame's orbiting crystals and crown shards as extra geometry in model space. */
 	void BuildUpgradeGeometry(const FUpgradeVisuals& Visuals, EvoMesh::FMesh& OutMesh) const;
 
+	/** RevealY: in scanner mode, triangles above this model-space height are drawn as an unscanned ghost. */
 	void PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes, float Scale, float ExtraYaw, const FVector2f& Center, float PixelScale,
-		const FPalette& Palette, float AccentBoost, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const;
+		const FPalette& Palette, float AccentBoost, const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer,
+		float RevealY = TNumericLimits<float>::Max()) const;
+
+	int32 PaintScanner(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
+	float GetScanTarget() const;
 
 	void PaintOrbitPaths(const FUpgradeVisuals& Visuals, const FVector2f& Center, float PixelScale, const FPalette& Palette,
 		const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 Layer) const;
@@ -120,6 +129,8 @@ private:
 	TSharedPtr<EvoMesh::FMesh> CurrentMesh;
 	TSharedPtr<EvoMesh::FMesh> PreviousMesh;
 	int32 CurrentStageId = 0;
+	bool bScannerMode = false;
+	float ScanProgress = 0.f; // smoothed 0..1 progress toward the next stage's price (scanner mode)
 	float MeshMinY = -1.f;   // vertical extent of the current model, in model units
 	float MeshMaxY = 1.f;
 
