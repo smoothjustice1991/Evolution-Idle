@@ -23,6 +23,8 @@ without recompiling.
 
 To compile without opening the editor (editor closed), double-click `BuildEditor.bat`; the output goes to `Saved/BuildLog.txt`.
 
+The packaged game's .exe and window icon is `Build/Windows/Application.ico` (the "EI" icon, 16-256 px).
+
 To ship a standalone build: **Platforms > Windows > Package Project**. `Content/Data` is packaged
 automatically (see `Config/DefaultGame.ini`).
 

@@ -1,6 +1,9 @@
 # Unreal generated folders
 Binaries/
-Build/
+Build/*
+!Build/Windows/
+Build/Windows/*
+!Build/Windows/Application.ico
 DerivedDataCache/
 Intermediate/
 Saved/
