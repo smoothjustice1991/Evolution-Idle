@@ -1177,7 +1177,7 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 					// ---- Gameplay ----
 					+ SVerticalBox::Slot()
 					.AutoHeight()
-					.Padding(0.f, 0.f, 0.f, 16.f)
+					.Padding(0.f, 0.f, 0.f, 8.f)
 					[
 						SNew(SCheckBox)
 						.IsChecked_Lambda([this]()
@@ -1197,6 +1197,31 @@ TSharedRef<SWidget> SEvoHUD::BuildSettingsOverlay()
 							.Padding(FMargin(8.f, 0.f, 0.f, 0.f))
 							[
 								Label(LOCTEXT("ReducedMotion", "Reduce motion (slower animation, no particles)"), 13, TextMain)
+							]
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 16.f)
+					[
+						SNew(SCheckBox)
+						.IsChecked_Lambda([this]()
+						{
+							const UEvolutionGameSubsystem* Sub = Subsystem.Get();
+							return (!Sub || Sub->GetSoundEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+						})
+						.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+						{
+							if (UEvolutionGameSubsystem* Sub = Subsystem.Get())
+							{
+								Sub->SetSoundEnabled(NewState == ECheckBoxState::Checked);
+							}
+						})
+						[
+							SNew(SBox)
+							.Padding(FMargin(8.f, 0.f, 0.f, 0.f))
+							[
+								Label(LOCTEXT("SoundEffects", "Sound effects"), 13, TextMain)
 							]
 						]
 					]

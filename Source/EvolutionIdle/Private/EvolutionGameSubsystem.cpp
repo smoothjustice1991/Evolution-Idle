@@ -7,6 +7,9 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundWaveProcedural.h"
 
 const FString UEvolutionGameSubsystem::SaveSlotName = TEXT("EvolutionIdle_Save");
 
@@ -24,6 +27,7 @@ void UEvolutionGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	LoadGameData();
 	Economy.Init(&Data);
+	LoadSounds();
 
 	if (bDataValid)
 	{
@@ -87,6 +91,7 @@ void UEvolutionGameSubsystem::LoadProgress()
 	Economy.SanitizeState();
 	bReducedMotion = Save->bReducedMotion;
 	DisplayMonitor = Save->DisplayMonitor;
+	bSoundEnabled = Save->bSoundEnabled;
 
 	// Offline earnings: measured from the last save, capped, granted once.
 	// We save immediately afterwards so the same interval can never be claimed again.
@@ -130,6 +135,7 @@ void UEvolutionGameSubsystem::SaveNow()
 	Save->LastOfflineClaimUtc = Now;
 	Save->bReducedMotion = bReducedMotion;
 	Save->DisplayMonitor = DisplayMonitor;
+	Save->bSoundEnabled = bSoundEnabled;
 
 	if (!UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex))
 	{
@@ -205,6 +211,7 @@ bool UEvolutionGameSubsystem::Evolve()
 		return false;
 	}
 	SaveNow();
+	PlayEvolveSound();
 	OnStageChanged.Broadcast(Economy.GetState().StageIndex);
 	return true;
 }
@@ -247,6 +254,112 @@ void UEvolutionGameSubsystem::SetDisplayMonitor(int32 MonitorIndex)
 		DisplayMonitor = MonitorIndex;
 		SaveNow();
 	}
+}
+
+void UEvolutionGameSubsystem::SetSoundEnabled(bool bEnabled)
+{
+	if (bSoundEnabled != bEnabled)
+	{
+		bSoundEnabled = bEnabled;
+		if (!bEnabled && EvolveAudio)
+		{
+			EvolveAudio->Stop();
+		}
+		SaveNow();
+	}
+}
+
+void UEvolutionGameSubsystem::LoadSounds()
+{
+	const FString Path = FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Audio"), TEXT("evolve.wav"));
+	TArray<uint8> File;
+	if (!FFileHelper::LoadFileToArray(File, *Path))
+	{
+		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound not found at %s"), *Path);
+		return;
+	}
+
+	// Minimal RIFF/WAVE reader: needs a 16-bit PCM "fmt " chunk and a "data" chunk.
+	auto ReadU16 = [&File](int32 Offset) { return static_cast<uint16>(File[Offset] | (File[Offset + 1] << 8)); };
+	auto ReadU32 = [&File](int32 Offset)
+	{
+		return static_cast<uint32>(File[Offset]) | (static_cast<uint32>(File[Offset + 1]) << 8)
+			| (static_cast<uint32>(File[Offset + 2]) << 16) | (static_cast<uint32>(File[Offset + 3]) << 24);
+	};
+	if (File.Num() < 12 || FMemory::Memcmp(File.GetData(), "RIFF", 4) != 0 || FMemory::Memcmp(File.GetData() + 8, "WAVE", 4) != 0)
+	{
+		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound is not a WAV file"));
+		return;
+	}
+	int32 Offset = 12;
+	uint16 Format = 0, Channels = 0, Bits = 0;
+	uint32 Rate = 0;
+	while (Offset + 8 <= File.Num())
+	{
+		const uint32 ChunkSize = ReadU32(Offset + 4);
+		const int32 Body = Offset + 8;
+		if (Body + static_cast<int64>(ChunkSize) > File.Num())
+		{
+			break;
+		}
+		if (FMemory::Memcmp(File.GetData() + Offset, "fmt ", 4) == 0 && ChunkSize >= 16)
+		{
+			Format = ReadU16(Body);
+			Channels = ReadU16(Body + 2);
+			Rate = ReadU32(Body + 4);
+			Bits = ReadU16(Body + 14);
+		}
+		else if (FMemory::Memcmp(File.GetData() + Offset, "data", 4) == 0)
+		{
+			EvolvePCM.Append(File.GetData() + Body, static_cast<int32>(ChunkSize));
+		}
+		Offset = Body + static_cast<int32>(ChunkSize) + (ChunkSize & 1);
+	}
+	if (Format != 1 || Bits != 16 || Channels == 0 || Rate == 0 || EvolvePCM.Num() == 0)
+	{
+		UE_LOG(LogEvolution, Warning, TEXT("Evolve sound must be 16-bit PCM WAV"));
+		EvolvePCM.Reset();
+		return;
+	}
+	EvolveSampleRate = static_cast<int32>(Rate);
+	EvolveChannels = Channels;
+}
+
+void UEvolutionGameSubsystem::PlayEvolveSound()
+{
+	if (!bSoundEnabled || EvolvePCM.Num() == 0)
+	{
+		return;
+	}
+	UGameInstance* GameInstance = GetGameInstance();
+	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
+	if (!World)
+	{
+		return;
+	}
+
+	if (!EvolveWave)
+	{
+		EvolveWave = NewObject<USoundWaveProcedural>(this);
+		EvolveWave->SetSampleRate(EvolveSampleRate);
+		EvolveWave->NumChannels = EvolveChannels;
+		EvolveWave->Duration = static_cast<float>(EvolvePCM.Num()) / static_cast<float>(EvolveSampleRate * EvolveChannels * 2);
+		EvolveWave->SoundGroup = SOUNDGROUP_Default;
+		EvolveWave->bLooping = false;
+	}
+	if (!EvolveAudio || EvolveAudio->GetWorld() != World)
+	{
+		EvolveAudio = UGameplayStatics::CreateSound2D(World, EvolveWave, 1.f, 1.f, 0.f, nullptr, true, false);
+	}
+	if (!EvolveAudio)
+	{
+		return;
+	}
+
+	EvolveAudio->Stop();
+	EvolveWave->ResetAudio();
+	EvolveWave->QueueAudio(EvolvePCM.GetData(), EvolvePCM.Num());
+	EvolveAudio->Play();
 }
 
 void UEvolutionGameSubsystem::ClearOfflineReport()

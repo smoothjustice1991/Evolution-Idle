@@ -28,4 +28,5 @@ public:
 
 	UPROPERTY() bool bReducedMotion = false;
 	UPROPERTY() int32 DisplayMonitor = -1;
+	UPROPERTY() bool bSoundEnabled = true;
 };

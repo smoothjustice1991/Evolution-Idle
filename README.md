@@ -48,6 +48,7 @@ automatically (see `Config/DefaultGame.ini`).
 | Stage-up banner and flash, reduced-motion setting, reset progress | Done |
 | Settings: window mode (windowed / borderless / fullscreen), resolution, monitor choice (remembered), Save & Quit | Done |
 | Click-rate cap: at most 20 clicks/sec count (`maxClicksPerSecond` in GameData.json), so autoclickers can't break the economy | Done |
+| Evolve sound (`Content/Audio/evolve.wav`, loaded by code) with a Sound effects on/off setting | Done |
 | Unreal's default splash image disabled (`WindowsApplication.ShowSplash=0`) | Done |
 | Era production bonus (+10% at stages 5, 9, 13, 17) | Done (set to 0 in data to disable) |
 | Critical clicks, combos, achievements, sound, Cosmic Rebirth prestige | Not yet (roadmap phase 4 / post-MVP) |
