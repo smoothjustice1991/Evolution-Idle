@@ -21,7 +21,8 @@ namespace
 	constexpr int32 StageMaxCrownShards = 10;
 	constexpr int32 StageMaxHaloRings = 5;
 	constexpr float StageCrystalGrowSeconds = 0.7f;
-	constexpr float StageFitScale = 0.78f;      // shrink the model a little so the orbits fit on screen
+	constexpr float StageFitScale = 0.78f;      // model size relative to the old radius-based layout (vertical limit)
+	constexpr float StageExtent = 1.62f;        // furthest horizontal reach of orbits / pedestal halos, in model units
 
 	FLinearColor StageLerp3(const FLinearColor& A, const FLinearColor& B, float T)
 	{
@@ -416,10 +417,14 @@ int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 	const FUpgradeVisuals Visuals = ComputeUpgradeVisuals();
 
 	// Float on the left of the evolution area so the helix in the middle stays readable.
-	const float Radius = FMath::Min(Size.Y * 0.4f, Size.X * 0.22f);
-	const float PixelScale = Radius * StageFitScale;
-	const float Bob = bReduced ? 0.f : FMath::Sin(Time * 0.9f) * Radius * 0.05f;
-	const FVector2f Center(FMath::Max(Radius * 1.25f, Size.X * 0.24f), Size.Y * 0.5f + Bob);
+	// Centre the model in the gap between the left edge and the helix, and size it (with its orbits,
+	// pedestal and halos, which reach about StageExtent model units out) so nothing overlaps the helix.
+	// Helix half-width matches SEvoHelix::OnPaint: min(W * 0.2, 100) plus pulse and node glow.
+	const float HelixHalfWidth = FMath::Min(Size.X * 0.2f, 100.f) * 1.08f + 14.f;
+	const float GapWidth = FMath::Max(40.f, Size.X * 0.5f - HelixHalfWidth);
+	const float PixelScale = FMath::Min(Size.Y * 0.4f * StageFitScale, (GapWidth * 0.5f - 6.f) / StageExtent);
+	const float Bob = bReduced ? 0.f : FMath::Sin(Time * 0.9f) * PixelScale * 0.06f;
+	const FVector2f Center(GapWidth * 0.5f, Size.Y * 0.5f + Bob);
 
 	const int32 BackLayer = LayerId;
 	const int32 ModelLayer = LayerId + 1;
@@ -451,8 +456,8 @@ int32 SEvoStageModel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 		PaintMeshes(Meshes, 2, Pulse, 0.f, Center, PixelScale, Palette, AccentBoost, AllottedGeometry, OutDrawElements, ModelLayer);
 	}
 
-	PaintPedestal(FVector2f(Center.X, Size.Y * 0.5f + PixelScale * (0.25f - MeshMinY)), Radius, Visuals.MultiplierLevels, Palette, AllottedGeometry, OutDrawElements, BackLayer);
-	PaintEffects(Center, Radius, Center.Y - PixelScale * (MeshMaxY + 0.55f), AllottedGeometry, OutDrawElements, FxLayer);
+	PaintPedestal(FVector2f(Center.X, Size.Y * 0.5f + PixelScale * (0.25f - MeshMinY)), PixelScale, Visuals.MultiplierLevels, Palette, AllottedGeometry, OutDrawElements, BackLayer);
+	PaintEffects(Center, PixelScale, Center.Y - PixelScale * (MeshMaxY + 0.55f), AllottedGeometry, OutDrawElements, FxLayer);
 	return FxLayer;
 }
 
@@ -488,7 +493,7 @@ void SEvoStageModel::PaintPedestal(const FVector2f& Center, float Radius, int32 
 	for (int32 Ring = 0; Ring < 3 + Halos; ++Ring)
 	{
 		const bool bHalo = Ring >= 3;
-		const float Rx = Radius * (0.5f + 0.17f * static_cast<float>(Ring));
+		const float Rx = Radius * (0.62f + 0.12f * static_cast<float>(Ring));
 		const float Ry = Rx * 0.18f;
 		const float Lift = bHalo ? -Radius * 0.012f * static_cast<float>(Ring - 2) : 0.f;
 		TArray<FVector2f> Points;
@@ -522,7 +527,7 @@ void SEvoStageModel::PaintEffects(const FVector2f& Center, float Radius, float L
 	if (Shock < 1.f)
 	{
 		const float Ease = 1.f - (1.f - Shock) * (1.f - Shock);
-		const float Rx = Radius * (0.3f + 1.1f * Ease);
+		const float Rx = Radius * (0.35f + 1.1f * Ease);
 		const float Ry = Rx * 0.35f;
 		TArray<FVector2f> Points;
 		constexpr int32 Segments = 64;
