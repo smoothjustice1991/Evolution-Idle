@@ -32,6 +32,7 @@ automatically (see `Config/DefaultGame.ini`).
 | Current EP, lifetime EP, EP/click, EP/sec, multiplier breakdown | Done |
 | Spend-to-evolve: stage price deducted from **current** EP (GDD 3.2) | Done |
 | All 20 stages and 5 eras as data, era-coloured theme | Done |
+| Floating low-poly 3D model of the current stage behind the helix (20 models, morphs on evolve) | Done |
 | Helix visuals change: organic helix (1-12), circuit helix (13-16), energy core (17-19), sphere of pure energy (20) | Done (procedural placeholder art) |
 | 24 upgrades across all eras: auto-clickers, click power, multipliers | Done |
 | Cost scaling `Cn = floor(C0 * r^n * S)`, shortfall and payback shown on every card | Done |
@@ -54,8 +55,11 @@ Source/EvolutionIdle/
   Public/EvolutionGameMode.h      Game mode, player controller, HUD actor
   Private/UI/SEvoHUD.*            Slate interface (status bar, evolve panel, upgrade panel, settings)
   Private/UI/SEvoHelix.*          Animated, clickable helix / energy sphere
+  Private/UI/EvoStageMeshes.*     Procedural 3D models for the 20 stages (plain C++)
+  Private/UI/SEvoStageModel.*     Draws the floating stage model (CPU-shaded Slate triangles)
   Private/Tests/                  Automation tests for the GDD acceptance criteria
 Tools/balance_sim.py              Economy simulator (same formulas as the C++)
+Tools/stage_preview/              Renders Docs/stage_models.png from the stage meshes without Unreal
 ```
 
 ## Economy rules

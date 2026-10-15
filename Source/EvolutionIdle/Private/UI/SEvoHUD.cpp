@@ -1,5 +1,6 @@
 #include "UI/SEvoHUD.h"
 #include "UI/SEvoHelix.h"
+#include "UI/SEvoStageModel.h"
 #include "UI/EvoFormat.h"
 #include "EvolutionGameSubsystem.h"
 #include "EvoEconomy.h"
@@ -490,8 +491,17 @@ TSharedRef<SWidget> SEvoHUD::BuildEvolutionArea()
 		.FillHeight(1.f)
 		.Padding(0.f, 8.f)
 		[
-			SAssignNew(Helix, SEvoHelix)
-			.Subsystem(Subsystem)
+			SNew(SOverlay)
+			+ SOverlay::Slot()
+			[
+				SNew(SEvoStageModel)
+				.Subsystem(Subsystem)
+			]
+			+ SOverlay::Slot()
+			[
+				SAssignNew(Helix, SEvoHelix)
+				.Subsystem(Subsystem)
+			]
 		]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
