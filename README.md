@@ -51,7 +51,7 @@ automatically (see `Config/DefaultGame.ini`).
 | Evolve sound (`Content/Audio/evolve.wav`, loaded by code) with a Sound effects on/off setting | Done |
 | Unreal's default splash image disabled (`WindowsApplication.ShowSplash=0`) | Done |
 | Era production bonus (+10% at stages 5, 9, 13, 17) | Done (set to 0 in data to disable) |
-| 32 achievements (every evolution, every era, clicks, automation, full offline period) with an in-game Achievements panel and unlock toasts; unlocks mirror to Steam ([setup](Docs/Steam_Achievements.md)) | Done |
+| 32 achievements (every evolution, every era, clicks, automation, full offline period) with an in-game Achievements panel and unlock toasts using the same icons as Steam; unlocks mirror to Steam ([setup](Docs/Steam_Achievements.md)) | Done |
 | Critical clicks, combos, Cosmic Rebirth prestige | Not yet (roadmap phase 4 / post-MVP) |
 
 ## Project layout

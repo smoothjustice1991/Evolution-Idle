@@ -20,7 +20,8 @@ public class EvolutionIdle : ModuleRules
 			"SlateCore",
 			"Json",
 			"JsonUtilities",
-			"ApplicationCore"
+			"ApplicationCore",
+			"ImageWrapper"
 		});
 
 		// Steam achievements (Windows). The engine bundles the Steamworks SDK; SteamShared loads it.

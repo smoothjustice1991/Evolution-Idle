@@ -12,7 +12,8 @@ with progress.
 3. Upload the two icons for each achievement from `Marketing/Steam/Achievements/`:
    `<API name>_achieved.jpg` and `<API name>_unachieved.jpg` (64 x 64). `_preview.png` shows them all;
    256 px masters are in `masters/`. Regenerate them with `Tools/make_achievement_icons.py` after
-   changing achievements.
+   changing achievements; the same script writes the 128 px copies the game shows in its own
+   Achievements panel (`Content/Achievements/<API name>.png` and `<API name>_locked.png`).
 4. **Publish** the changes (Steamworks > Publish). Unpublished achievements are ignored by Steam.
 5. In `Config/DefaultEngine.ini`, replace `SteamDevAppId=480` with the game's App ID, and set
    `ReleaseAppId` to the same number before the release build.

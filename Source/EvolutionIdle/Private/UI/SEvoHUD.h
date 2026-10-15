@@ -6,6 +6,7 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/SlateTypes.h"
 #include "GenericPlatform/GenericWindowDefinition.h"
+#include "UI/EvoAchievementIcons.h"
 
 class UEvolutionGameSubsystem;
 class FEvoEconomy;
@@ -76,6 +77,7 @@ private:
 	bool bSettingsOpen = false;
 	bool bAchievementsOpen = false;
 	TSharedPtr<SScrollBox> AchievementList;
+	FEvoAchievementIcons AchievementIcons;
 
 	// Achievement unlock toasts, shown one at a time.
 	TArray<FString> ToastQueue;

@@ -12,8 +12,9 @@ Usage (from the repo root):
   python3 Tools/make_achievement_icons.py meshes.json
 
 Writes Marketing/Steam/Achievements/<API name>_achieved.jpg and _unachieved.jpg (64 x 64, for Steamworks),
-256 x 256 PNG masters in Marketing/Steam/Achievements/masters/, and a preview sheet
-Marketing/Steam/Achievements/_preview.png.
+256 x 256 PNG masters in Marketing/Steam/Achievements/masters/, a preview sheet
+Marketing/Steam/Achievements/_preview.png, and 128 x 128 PNGs for the in-game panel in
+Content/Achievements/<API name>.png and <API name>_locked.png.
 """
 import json
 import math
@@ -25,6 +26,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 N = 256           # master size
 SS = 3            # supersampling for drawing
 OUT = "Marketing/Steam/Achievements/"
+GAME_OUT = "Content/Achievements/"   # 128 px PNGs the game loads for its Achievements panel
 DATA = "Content/Data/GameData.json"
 GOLD = (255, 205, 90)
 
@@ -362,6 +364,7 @@ def main():
     stages = {s["id"]: s for s in data["stages"]}
     cap = data["economy"].get("offlineCapHours", 8)
     os.makedirs(OUT + "masters", exist_ok=True)
+    os.makedirs(GAME_OUT, exist_ok=True)
 
     click_tiers = sorted(a["target"] for a in data["achievements"] if a["type"] == "clicks")
     auto_tiers = sorted(a["target"] for a in data["achievements"] if a["type"] == "autoClickers")
@@ -390,6 +393,9 @@ def main():
         small = master.resize((64, 64), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=1, percent=60, threshold=2))
         small.save(f"{OUT}{a['id']}_achieved.jpg", quality=95)
         unachieved(small).save(f"{OUT}{a['id']}_unachieved.jpg", quality=95)
+        game = master.resize((128, 128), Image.LANCZOS)
+        game.save(f"{GAME_OUT}{a['id']}.png", optimize=True)
+        unachieved(game).save(f"{GAME_OUT}{a['id']}_locked.png", optimize=True)
         made.append((a, master))
         print("made", a["id"])
 

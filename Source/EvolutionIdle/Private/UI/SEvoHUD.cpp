@@ -1829,10 +1829,28 @@ TSharedRef<SWidget> SEvoHUD::MakeAchievementRow(const FString& AchievementId)
 			.Padding(0.f, 0.f, 12.f, 0.f)
 			[
 				SNew(SBox)
-				.WidthOverride(40.f)
-				.HeightOverride(40.f)
+				.WidthOverride(52.f)
+				.HeightOverride(52.f)
 				[
+					SNew(SOverlay)
+					// Icon art (Content/Achievements); grey version while locked.
+					+ SOverlay::Slot()
+					[
+						SNew(SImage)
+						.Image_Lambda([this, AchievementId, IsUnlocked]() { return AchievementIcons.Get(AchievementId, IsUnlocked()); })
+						.Visibility(TAttribute<EVisibility>::CreateLambda([this, AchievementId, IsUnlocked]()
+						{
+							return AchievementIcons.Get(AchievementId, IsUnlocked()) ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+						}))
+					]
+					// Text badge fallback if an icon file is missing.
+					+ SOverlay::Slot()
+					[
 					SNew(SBorder)
+					.Visibility(TAttribute<EVisibility>::CreateLambda([this, AchievementId, IsUnlocked]()
+					{
+						return AchievementIcons.Get(AchievementId, IsUnlocked()) ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
+					}))
 					.BorderImage(&BadgeBrush)
 					.HAlign(HAlign_Center)
 					.VAlign(VAlign_Center)
@@ -1854,6 +1872,7 @@ TSharedRef<SWidget> SEvoHUD::MakeAchievementRow(const FString& AchievementId)
 						{
 							return FSlateColor(IsUnlocked() ? FLinearColor(0.01f, 0.02f, 0.035f, 1.f) : TextMuted);
 						})
+					]
 					]
 				]
 			]
@@ -1962,10 +1981,26 @@ TSharedRef<SWidget> SEvoHUD::BuildAchievementToast()
 				.Padding(0.f, 0.f, 14.f, 0.f)
 				[
 					SNew(SBox)
-					.WidthOverride(44.f)
-					.HeightOverride(44.f)
+					.WidthOverride(64.f)
+					.HeightOverride(64.f)
 					[
+						SNew(SOverlay)
+						+ SOverlay::Slot()
+						[
+							SNew(SImage)
+							.Image_Lambda([this]() { return AchievementIcons.Get(ToastId, true); })
+							.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+							{
+								return AchievementIcons.Get(ToastId, true) ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+							}))
+						]
+						+ SOverlay::Slot()
+						[
 						SNew(SBorder)
+						.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+						{
+							return AchievementIcons.Get(ToastId, true) ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
+						}))
 						.BorderImage(&BadgeBrush)
 						.HAlign(HAlign_Center)
 						.VAlign(VAlign_Center)
@@ -1980,6 +2015,7 @@ TSharedRef<SWidget> SEvoHUD::BuildAchievementToast()
 								const FEvoAchievementDef* Def = Sub ? Sub->FindAchievement(ToastId) : nullptr;
 								return Def ? FText::FromString(GetBadgeLabel(*Def, Sub->GetEconomy().GetData().Economy.OfflineCapHours)) : FText::GetEmpty();
 							})
+						]
 						]
 					]
 				]
