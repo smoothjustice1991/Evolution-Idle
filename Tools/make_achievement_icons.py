@@ -71,8 +71,9 @@ def mix(a, b, t):
 # ---------------------------------------------------------------------------
 
 def render_model(mesh, p, s, bg, yaw=0.65, pitch=0.22, size=N * SS):
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    """Transparent render with the game's lighting; smooth triangles blend per-vertex colours (Gouraud)."""
+    import numpy as np
+    img = np.zeros((size, size, 4), np.float32)
     white = [1.0, 1.0, 1.0]
     slots = [[x * 0.95 for x in p], [x * 0.95 for x in s], lerp(p, white, 0.6), lerp(bg, p, 0.3),
              [x * 0.65 for x in lerp(p, s, 0.5)]]
@@ -82,13 +83,31 @@ def render_model(mesh, p, s, bg, yaw=0.65, pitch=0.22, size=N * SS):
     cy, sy = math.cos(yaw), math.sin(yaw)
     cp, sp = math.cos(pitch), math.sin(pitch)
     cam = 4.0
-    view = []
-    for x, y, z, _f in mesh["pos"]:
+
+    def rot(x, y, z):
         x, z = x * cy + z * sy, -x * sy + z * cy
         y, z = y * cp - z * sp, y * sp + z * cp
-        view.append((x, y, z))
+        return (x, y, z)
+
+    view, vnorm = [], []
+    for v in mesh["pos"]:
+        view.append(rot(v[0], v[1], v[2]))
+        vnorm.append(rot(v[4], v[5], v[6]) if len(v) >= 7 else (0.0, 0.0, 0.0))
+
+    def shade(base, accent, nrm, depth):
+        diff = max(0.0, sum(nrm[i] * light[i] for i in range(3)))
+        if accent:
+            return [x * (0.9 + 0.3 * diff) for x in base]
+        rim = (1.0 - max(0.0, nrm[2])) ** 3
+        spec = max(0.0, sum(nrm[i] * half[i] for i in range(3))) ** 24 * 0.4
+        col = [base[i] * (0.3 + 0.8 * diff) + rim_col[i] * rim * 0.6 + spec for i in range(3)]
+        fz = min(max(0.5 + 0.5 * depth, 0.0), 1.0)
+        return [x * (0.7 + 0.3 * fz) for x in col]
+
     tris = []
-    for a, b, c, slot, two in mesh["tri"]:
+    for t in mesh["tri"]:
+        a, b, c, slot, two = t[:5]
+        smooth = t[5] if len(t) > 5 else 0
         A, B, C = view[a], view[b], view[c]
         e1 = [B[i] - A[i] for i in range(3)]
         e2 = [C[i] - A[i] for i in range(3)]
@@ -99,26 +118,48 @@ def render_model(mesh, p, s, bg, yaw=0.65, pitch=0.22, size=N * SS):
             if not two:
                 continue
             n = [-x for x in n]
-        tris.append((cen[2], A, B, C, norm(n), slot))
+        tris.append((cen[2], (a, b, c), norm(n), slot, smooth))
     tris.sort(key=lambda t: t[0])
+
     scale = size * 0.42
-    for depth, A, B, C, n, slot in tris:
-        base = slots[slot]
-        diff = max(0.0, sum(n[i] * light[i] for i in range(3)))
-        if slot == 2:
-            col = [x * (0.9 + 0.3 * diff) for x in base]
-        else:
-            rim = (1.0 - max(0.0, n[2])) ** 3
-            spec = max(0.0, sum(n[i] * half[i] for i in range(3))) ** 24 * 0.4
-            col = [base[i] * (0.3 + 0.8 * diff) + rim_col[i] * rim * 0.6 + spec for i in range(3)]
-            fz = min(max(0.5 + 0.5 * depth, 0.0), 1.0)
-            col = [x * (0.7 + 0.3 * fz) for x in col]
-        pts = []
-        for v in (A, B, C):
-            k = cam / (cam - v[2])
-            pts.append((size / 2 + v[0] * k * scale, size / 2 - v[1] * k * scale))
-        d.polygon(pts, fill=lin_srgb(col) + (255,))
-    return img
+    for depth, idx, fn, slot, smooth in tris:
+        base, accent = slots[slot], slot == 2
+        pts, cols = [], []
+        for k in idx:
+            v = view[k]
+            kk = cam / (cam - v[2])
+            pts.append((size / 2 + v[0] * kk * scale, size / 2 - v[1] * kk * scale))
+            if smooth:
+                vn = vnorm[k]
+                if sum(vn[i] * fn[i] for i in range(3)) <= 0:
+                    vn = fn
+                cols.append(shade(base, accent, vn, v[2]))
+        if not smooth:
+            cols = [shade(base, accent, fn, depth)] * 3
+        (x0, y0), (x1, y1), (x2, y2) = pts
+        minx, maxx = int(max(0, math.floor(min(x0, x1, x2)))), int(min(size - 1, math.ceil(max(x0, x1, x2))))
+        miny, maxy = int(max(0, math.floor(min(y0, y1, y2)))), int(min(size - 1, math.ceil(max(y0, y1, y2))))
+        if minx > maxx or miny > maxy:
+            continue
+        den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(den) < 1e-9:
+            continue
+        ys, xs = np.mgrid[miny:maxy + 1, minx:maxx + 1].astype(np.float32) + 0.5
+        w0 = ((y1 - y2) * (xs - x2) + (x2 - x1) * (ys - y2)) / den
+        w1 = ((y2 - y0) * (xs - x2) + (x0 - x2) * (ys - y2)) / den
+        w2 = 1 - w0 - w1
+        m = (w0 >= -1e-4) & (w1 >= -1e-4) & (w2 >= -1e-4)
+        if not m.any():
+            continue
+        c = np.array(cols, np.float32)
+        px = w0[..., None] * c[0] + w1[..., None] * c[1] + w2[..., None] * c[2]
+        region = img[miny:maxy + 1, minx:maxx + 1]
+        region[m, :3] = px[m]
+        region[m, 3] = 1.0
+    lin = np.clip(img[..., :3], 0, 1)
+    srgb = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
+    rgba = np.dstack([srgb, img[..., 3:4]])
+    return Image.fromarray((rgba * 255 + 0.5).astype(np.uint8), "RGBA")
 
 
 def fit(img, box_frac):
