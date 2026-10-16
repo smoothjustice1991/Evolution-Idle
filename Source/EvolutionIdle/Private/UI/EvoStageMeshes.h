@@ -53,12 +53,27 @@ namespace EvoMesh
 		std::vector<uint32_t> Indices;    // 3 per triangle, wound so the normal points outward
 		std::vector<uint8_t> TriSlot;     // per triangle colour slot
 		std::vector<uint8_t> TriTwoSided; // per triangle: 1 = draw from both sides (fins, blades)
+		std::vector<FV3> Normals;         // per vertex smooth normal (zero for vertices of flat-shaded parts)
+		std::vector<int32_t> SmoothGroup; // per vertex: which curved part it belongs to, -1 = flat
+		std::vector<uint8_t> TriSmooth;   // per triangle: 1 = shade smoothly from the vertex normals
+
+		void Clear()
+		{
+			Positions.clear(); Flex.clear(); Indices.clear(); TriSlot.clear(); TriTwoSided.clear();
+			Normals.clear(); SmoothGroup.clear(); TriSmooth.clear();
+		}
 
 		int32_t NumTriangles() const { return static_cast<int32_t>(TriSlot.size()); }
 	};
 
 	/** Appends an elongated octahedron (crystal) to an existing mesh. Used for upgrade indicators. */
 	void AppendGem(FMesh& Mesh, const FV3& Center, const FV3& Axis, float Length, float Width, uint8_t Slot);
+
+	/**
+	 * Fills Normals for smooth-shaded triangles: each vertex gets the area-weighted average of the faces
+	 * around it within its own curved part (vertices at the same spot in one part are treated as one).
+	 */
+	void ComputeSmoothNormals(FMesh& Mesh);
 
 	/** Builds the model for a stage id (1..20). Unknown ids return a simple sphere. */
 	FMesh BuildStageMesh(int32_t StageId);

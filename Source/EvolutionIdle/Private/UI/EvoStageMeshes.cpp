@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -12,6 +13,10 @@ namespace EvoMesh
 	{
 		constexpr float kPi = 3.14159265358979f;
 		constexpr float kTwoPi = 2.f * kPi;
+
+		/** Extra tessellation for curved parts, so silhouettes read as round rather than faceted. */
+		constexpr float kDetail = 1.5f;
+		int32_t Detail(int32_t Count) { return std::max(Count, static_cast<int32_t>(std::ceil(static_cast<float>(Count) * kDetail))); }
 	}
 
 	float Dot(const FV3& A, const FV3& B) { return A.X * B.X + A.Y * B.Y + A.Z * B.Z; }
@@ -77,11 +82,31 @@ namespace EvoMesh
 		public:
 			FMesh Mesh;
 
+			/** Smoothing group given to new vertices; -1 = flat. Curved primitives set it for their own vertices. */
+			int32_t CurrentGroup = -1;
+			int32_t NextGroup = 0;
+
+			/** Starts a new smooth (curved) part; returns the previous group so it can be restored. */
+			int32_t BeginSmooth()
+			{
+				const int32_t Previous = CurrentGroup;
+				CurrentGroup = NextGroup++;
+				return Previous;
+			}
+
 			uint32_t AddVertex(const FV3& P, float InFlex)
 			{
 				Mesh.Positions.push_back(P);
 				Mesh.Flex.push_back(InFlex);
+				Mesh.Normals.push_back(FV3());
+				Mesh.SmoothGroup.push_back(CurrentGroup);
 				return static_cast<uint32_t>(Mesh.Positions.size() - 1);
+			}
+
+			bool IsSmooth(uint32_t A, uint32_t B, uint32_t C) const
+			{
+				const int32_t G = Mesh.SmoothGroup[A];
+				return G >= 0 && Mesh.SmoothGroup[B] == G && Mesh.SmoothGroup[C] == G;
 			}
 
 			/** Adds a triangle, flipping its winding if needed so the normal points away from Inside. */
@@ -105,6 +130,7 @@ namespace EvoMesh
 				Mesh.Indices.push_back(C);
 				Mesh.TriSlot.push_back(Slot);
 				Mesh.TriTwoSided.push_back(0);
+				Mesh.TriSmooth.push_back(IsSmooth(A, B, C) ? 1 : 0);
 			}
 
 			void AddTwoSidedTri(uint32_t A, uint32_t B, uint32_t C, uint8_t Slot)
@@ -114,11 +140,15 @@ namespace EvoMesh
 				Mesh.Indices.push_back(C);
 				Mesh.TriSlot.push_back(Slot);
 				Mesh.TriTwoSided.push_back(1);
+				Mesh.TriSmooth.push_back(0);
 			}
 
 			void Ellipsoid(const FV3& Center, const FV3& Radii, uint8_t Slot, float InFlex = 0.f,
 				const FRot& Rot = FRot(), int32_t Segments = 14, int32_t Rings = 9)
 			{
+				Segments = Detail(Segments);
+				Rings = Detail(Rings);
+				const int32_t PreviousGroup = BeginSmooth();
 				const uint32_t Base = static_cast<uint32_t>(Mesh.Positions.size());
 				for (int32_t J = 0; J <= Rings; ++J)
 				{
@@ -142,6 +172,7 @@ namespace EvoMesh
 						AddTri(A, C, B, Slot, Center);
 					}
 				}
+				CurrentGroup = PreviousGroup;
 			}
 
 			void Sphere(const FV3& Center, float Radius, uint8_t Slot, float InFlex = 0.f, int32_t Segments = 12, int32_t Rings = 8)
@@ -158,6 +189,7 @@ namespace EvoMesh
 				{
 					return;
 				}
+				Sides = Detail(Sides);
 				auto FlexAt = [&Flexes](int32_t Index) { return Flexes.empty() ? 0.f : Flexes[std::min<size_t>(Index, Flexes.size() - 1)]; };
 				auto RadiusAt = [&Radii](int32_t Index) { return Radii[std::min<size_t>(Index, Radii.size() - 1)]; };
 
@@ -172,6 +204,7 @@ namespace EvoMesh
 				FV3 Up = std::fabs(Tangents[0].Y) < 0.9f ? FV3(0.f, 1.f, 0.f) : FV3(1.f, 0.f, 0.f);
 				FV3 Normal = Normalize(Cross(Cross(Tangents[0], Up), Tangents[0]));
 
+				const int32_t PreviousGroup = BeginSmooth(); // the tube wall is smooth; caps (added below) stay flat
 				const uint32_t Base = static_cast<uint32_t>(Mesh.Positions.size());
 				for (int32_t I = 0; I < Count; ++I)
 				{
@@ -198,6 +231,7 @@ namespace EvoMesh
 						AddTri(A, C, D, Slot, Inside);
 					}
 				}
+				CurrentGroup = PreviousGroup;
 				auto Cap = [&](int32_t I, float Direction)
 				{
 					if (RadiusAt(I) <= 1e-4f)
@@ -239,6 +273,9 @@ namespace EvoMesh
 			/** Torus lying in its local XZ plane. */
 			void Torus(const FV3& Center, float Major, float Minor, uint8_t Slot, const FRot& Rot = FRot(), int32_t Segments = 28, int32_t Sides = 6)
 			{
+				Segments = Detail(Segments);
+				Sides = Detail(Sides);
+				const int32_t PreviousGroup = BeginSmooth();
 				const uint32_t Base = static_cast<uint32_t>(Mesh.Positions.size());
 				for (int32_t I = 0; I < Segments; ++I)
 				{
@@ -265,6 +302,7 @@ namespace EvoMesh
 						AddTri(A, C, D, Slot, Inside);
 					}
 				}
+				CurrentGroup = PreviousGroup;
 			}
 
 			/** Elongated octahedron (crystal shard) pointing along Axis. */
@@ -333,6 +371,7 @@ namespace EvoMesh
 					}
 					Faces.swap(Next);
 				}
+				const int32_t PreviousGroup = BeginSmooth();
 				const uint32_t Base = static_cast<uint32_t>(Mesh.Positions.size());
 				for (const FV3& V : Verts)
 				{
@@ -342,6 +381,7 @@ namespace EvoMesh
 				{
 					AddTri(Base + std::get<0>(F), Base + std::get<1>(F), Base + std::get<2>(F), Slot, Center);
 				}
+				CurrentGroup = PreviousGroup;
 			}
 
 			/** Scales and recentres the mesh so it fits in a unit sphere. */
@@ -947,6 +987,52 @@ namespace EvoMesh
 		}
 	}
 
+	void ComputeSmoothNormals(FMesh& Mesh)
+	{
+		const size_t NumVerts = Mesh.Positions.size();
+		Mesh.Normals.assign(NumVerts, FV3());
+		if (Mesh.SmoothGroup.size() != NumVerts || Mesh.TriSmooth.size() != Mesh.TriSlot.size())
+		{
+			return;
+		}
+
+		// Vertices of one curved part that sit at the same spot (sphere poles, seams, icosphere midpoints)
+		// share a normal, so they are keyed by group + quantised position.
+		using FKey = std::tuple<int32_t, int32_t, int32_t, int32_t>;
+		auto KeyOf = [&Mesh](size_t I)
+		{
+			const FV3& P = Mesh.Positions[I];
+			auto Q = [](float V) { return static_cast<int32_t>(std::lround(V * 20000.f)); };
+			return FKey(Mesh.SmoothGroup[I], Q(P.X), Q(P.Y), Q(P.Z));
+		};
+		std::map<FKey, FV3> Sum;
+		const int32_t NumTris = Mesh.NumTriangles();
+		for (int32_t T = 0; T < NumTris; ++T)
+		{
+			if (!Mesh.TriSmooth[T])
+			{
+				continue;
+			}
+			const uint32_t A = Mesh.Indices[T * 3], B = Mesh.Indices[T * 3 + 1], C = Mesh.Indices[T * 3 + 2];
+			const FV3 FaceNormal = Cross(Mesh.Positions[B] - Mesh.Positions[A], Mesh.Positions[C] - Mesh.Positions[A]); // area weighted
+			Sum[KeyOf(A)] += FaceNormal;
+			Sum[KeyOf(B)] += FaceNormal;
+			Sum[KeyOf(C)] += FaceNormal;
+		}
+		for (size_t I = 0; I < NumVerts; ++I)
+		{
+			if (Mesh.SmoothGroup[I] < 0)
+			{
+				continue;
+			}
+			const auto Found = Sum.find(KeyOf(I));
+			if (Found != Sum.end())
+			{
+				Mesh.Normals[I] = Normalize(Found->second);
+			}
+		}
+	}
+
 	void AppendGem(FMesh& Mesh, const FV3& Center, const FV3& Axis, float Length, float Width, uint8_t Slot)
 	{
 		FBuilder B;
@@ -983,6 +1069,7 @@ namespace EvoMesh
 		default: B.Icosphere(FV3(0.f, 0.f, 0.f), 1.f, SlotPrimary, 1); break;
 		}
 		B.Normalize01();
+		ComputeSmoothNormals(B.Mesh);
 		return B.Mesh;
 	}
 }

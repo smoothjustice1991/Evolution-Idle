@@ -12,12 +12,13 @@ int main()
 		std::printf("%s{\"stage\":%d,\"pos\":[", Stage > 1 ? "," : "", Stage);
 		for (size_t I = 0; I < M.Positions.size(); ++I)
 		{
-			std::printf("%s[%.4f,%.4f,%.4f,%.3f]", I ? "," : "", M.Positions[I].X, M.Positions[I].Y, M.Positions[I].Z, M.Flex[I]);
+			std::printf("%s[%.4f,%.4f,%.4f,%.3f,%.4f,%.4f,%.4f]", I ? "," : "", M.Positions[I].X, M.Positions[I].Y, M.Positions[I].Z, M.Flex[I],
+				M.Normals[I].X, M.Normals[I].Y, M.Normals[I].Z);
 		}
 		std::printf("],\"tri\":[");
 		for (int T = 0; T < M.NumTriangles(); ++T)
 		{
-			std::printf("%s[%u,%u,%u,%u,%u]", T ? "," : "", M.Indices[T * 3], M.Indices[T * 3 + 1], M.Indices[T * 3 + 2], M.TriSlot[T], M.TriTwoSided[T]);
+			std::printf("%s[%u,%u,%u,%u,%u,%u]", T ? "," : "", M.Indices[T * 3], M.Indices[T * 3 + 1], M.Indices[T * 3 + 2], M.TriSlot[T], M.TriTwoSided[T], M.TriSmooth[T]);
 		}
 		std::printf("]}");
 	}

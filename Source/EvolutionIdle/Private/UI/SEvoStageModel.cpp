@@ -374,11 +374,7 @@ FVector3f SEvoStageModel::ToView(const FVector3f& P, float Yaw) const
 
 void SEvoStageModel::BuildUpgradeGeometry(const FUpgradeVisuals& Visuals, EvoMesh::FMesh& OutMesh) const
 {
-	OutMesh.Positions.clear();
-	OutMesh.Flex.clear();
-	OutMesh.Indices.clear();
-	OutMesh.TriSlot.clear();
-	OutMesh.TriTwoSided.clear();
+	OutMesh.Clear();
 
 	const bool bReduced = IsReducedMotion();
 	static const uint8 RingSlots[StageMaxOrbitRings] = { EvoMesh::SlotPrimary, EvoMesh::SlotSecondary, EvoMesh::SlotPrimary, EvoMesh::SlotAccent };
@@ -709,6 +705,7 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 		TotalVerts += static_cast<int32>(Meshes[M]->Positions.size());
 	}
 	ViewPositions.SetNumUninitialized(TotalVerts, EAllowShrinking::No);
+	ViewNormals.SetNumUninitialized(TotalVerts, EAllowShrinking::No);
 	TArray<int32, TInlineAllocator<4>> VertexOffsets;
 	int32 Offset = 0;
 	for (int32 M = 0; M < NumMeshes; ++M)
@@ -728,6 +725,8 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 				P.Z += Amp * FMath::Sin(Time * 2.2f + Src.X * 2.5f);
 			}
 			ViewPositions[Offset + I] = ToView(P, Yaw) * Scale;
+			const EvoMesh::FV3& SrcN = Mesh.Normals.size() == Mesh.Positions.size() ? Mesh.Normals[I] : EvoMesh::FV3();
+			ViewNormals[Offset + I] = ToView(FVector3f(SrcN.X, SrcN.Y, SrcN.Z), Yaw); // rotation only
 		}
 		Offset += Count;
 	}
@@ -798,17 +797,12 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 	Vertices.Reserve(SortedTris.Num() * 3);
 	Indices.Reserve(SortedTris.Num() * 3);
 
-	for (const FSortedTri& Entry : SortedTris)
+	// Lighting for one point: diffuse + rim + specular, depth fog, purchase flash.
+	auto Shade = [&](const FLinearColor& BaseColor, bool bAccent, const FVector3f& N, float Depth)
 	{
-		const EvoMesh::FMesh& Mesh = *Meshes[Entry.MeshIndex];
-		const int32 Base = VertexOffsets[Entry.MeshIndex];
-		const uint8 Slot = FMath::Min<uint8>(Mesh.TriSlot[Entry.Index], EvoMesh::SlotCount - 1);
-		const FLinearColor& BaseColor = SlotColors[Slot];
-		const FVector3f& N = Entry.Normal;
 		const float Diffuse = FMath::Max(0.f, FVector3f::DotProduct(N, Light));
-
 		FLinearColor Color;
-		if (Slot == EvoMesh::SlotAccent)
+		if (bAccent)
 		{
 			Color = StageScale3(BaseColor, 0.85f + 0.3f * Diffuse);
 		}
@@ -821,7 +815,7 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 				BaseColor.R * Lit + RimColor.R * Rim * 0.55f + Spec,
 				BaseColor.G * Lit + RimColor.G * Rim * 0.55f + Spec,
 				BaseColor.B * Lit + RimColor.B * Rim * 0.55f + Spec, 1.f);
-			const float Fog = FMath::Clamp(0.5f + 0.5f * Entry.Depth / FMath::Max(Scale, 0.01f), 0.f, 1.f);
+			const float Fog = FMath::Clamp(0.5f + 0.5f * Depth / FMath::Max(Scale, 0.01f), 0.f, 1.f);
 			Color = StageScale3(Color, 0.6f + 0.4f * Fog);
 		}
 		if (Flash > 0.f)
@@ -829,19 +823,52 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 			// Purchase flash: tint toward the upgrade colour, strongest on edges facing away from the light.
 			Color = StageLerp3(Color, FlashColor, Flash * (0.25f + 0.35f * (1.f - Diffuse)));
 		}
+		return Color;
+	};
+
+	struct FCorner
+	{
+		FVector3f Pos;
+		FLinearColor Color;
+	};
+
+	for (const FSortedTri& Entry : SortedTris)
+	{
+		const EvoMesh::FMesh& Mesh = *Meshes[Entry.MeshIndex];
+		const int32 Base = VertexOffsets[Entry.MeshIndex];
+		const uint8 Slot = FMath::Min<uint8>(Mesh.TriSlot[Entry.Index], EvoMesh::SlotCount - 1);
+		const FLinearColor& BaseColor = SlotColors[Slot];
+		const bool bAccent = Slot == EvoMesh::SlotAccent;
+		const bool bSmooth = Entry.Index < static_cast<int32>(Mesh.TriSmooth.size()) && Mesh.TriSmooth[Entry.Index] != 0;
+
+		// Smooth parts are lit per vertex (colours blend across the triangle); flat parts use the face normal.
+		FCorner Tri[3];
+		float TriModelY[3];
+		const FLinearColor FlatColor = bSmooth ? FLinearColor::Black : Shade(BaseColor, bAccent, Entry.Normal, Entry.Depth);
+		for (int32 K = 0; K < 3; ++K)
+		{
+			const int32 VertexIndex = Base + static_cast<int32>(Mesh.Indices[Entry.Index * 3 + K]);
+			Tri[K].Pos = ViewPositions[VertexIndex];
+			TriModelY[K] = Mesh.Positions[Mesh.Indices[Entry.Index * 3 + K]].Y;
+			if (bSmooth)
+			{
+				FVector3f N = ViewNormals[VertexIndex];
+				if (N.IsNearlyZero() || FVector3f::DotProduct(N, Entry.Normal) < 0.f)
+				{
+					N = Entry.Normal;
+				}
+				Tri[K].Color = Shade(BaseColor, bAccent, N, Tri[K].Pos.Z);
+			}
+			else
+			{
+				Tri[K].Color = FlatColor;
+			}
+		}
+
 		// Scanner mode: everything above the scan height is hidden. Triangles that cross it are clipped
 		// exactly at that height (in model space, before rotation) so the cut is a clean straight edge.
 		const bool bClip = RevealY < TNumericLimits<float>::Max();
-		FVector3f TriView[3];
-		float TriModelY[3];
-		for (int32 K = 0; K < 3; ++K)
-		{
-			const uint32 VertexIndex = Mesh.Indices[Entry.Index * 3 + K];
-			TriView[K] = ViewPositions[Base + static_cast<int32>(VertexIndex)];
-			TriModelY[K] = Mesh.Positions[VertexIndex].Y;
-		}
-
-		TArray<FVector3f, TInlineAllocator<4>> Polygon;
+		TArray<FCorner, TInlineAllocator<4>> Polygon;
 		if (bClip)
 		{
 			for (int32 K = 0; K < 3; ++K)
@@ -851,12 +878,12 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 				const bool bNextInside = TriModelY[NextK] <= RevealY;
 				if (bInside)
 				{
-					Polygon.Add(TriView[K]);
+					Polygon.Add(Tri[K]);
 				}
 				if (bInside != bNextInside)
 				{
 					const float T = (RevealY - TriModelY[K]) / (TriModelY[NextK] - TriModelY[K]);
-					Polygon.Add(FMath::Lerp(TriView[K], TriView[NextK], T));
+					Polygon.Add(FCorner{ FMath::Lerp(Tri[K].Pos, Tri[NextK].Pos, T), FMath::Lerp(Tri[K].Color, Tri[NextK].Color, T) });
 				}
 			}
 			if (Polygon.Num() < 3)
@@ -867,22 +894,24 @@ void SEvoStageModel::PaintMeshes(const EvoMesh::FMesh* Meshes[], int32 NumMeshes
 			if (MaxTriY > RevealY - 0.05f)
 			{
 				// Soft glow along the freshly revealed edge.
-				Color = StageLerp3(Color, Palette.Secondary, 0.35f);
+				for (FCorner& Corner : Polygon)
+				{
+					Corner.Color = StageLerp3(Corner.Color, Palette.Secondary, 0.35f);
+				}
 			}
 		}
 		else
 		{
-			Polygon.Append(TriView, 3);
+			Polygon.Append(Tri, 3);
 		}
 
-		Color = StageLerp3(Palette.Background, Color, StageVisibility);
-		const FColor VertexColor = Color.ToFColor(true);
-
 		const SlateIndex BaseIndex = static_cast<SlateIndex>(Vertices.Num());
-		for (const FVector3f& P : Polygon)
+		for (const FCorner& Corner : Polygon)
 		{
+			const FVector3f& P = Corner.Pos;
 			const float Perspective = StageCameraDistance / FMath::Max(0.5f, StageCameraDistance - P.Z);
 			const FVector2f Local = Center + FVector2f(P.X * Perspective, -P.Y * Perspective) * PixelScale;
+			const FColor VertexColor = StageLerp3(Palette.Background, Corner.Color, StageVisibility).ToFColor(true);
 			Vertices.Add(FSlateVertex::Make(RenderTransform, Local, UV, VertexColor));
 		}
 		for (int32 K = 1; K + 1 < Polygon.Num(); ++K)

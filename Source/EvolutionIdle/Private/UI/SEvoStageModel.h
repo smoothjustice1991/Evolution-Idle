@@ -156,6 +156,7 @@ private:
 	// Scratch buffers reused every frame to avoid allocations.
 	mutable EvoMesh::FMesh UpgradeMesh;
 	mutable TArray<FVector3f> ViewPositions;
+	mutable TArray<FVector3f> ViewNormals;
 	mutable TArray<FSortedTri> SortedTris;
 	mutable TArray<FSlateVertex> Vertices;
 	mutable TArray<SlateIndex> Indices;

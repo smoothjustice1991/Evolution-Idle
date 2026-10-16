@@ -56,54 +56,95 @@ def slot_colors(p, s, bg):
 
 
 def render(mesh, p, s, bg, yaw):
-    img = Image.new("RGB", (SIZE * SS, SIZE * SS), lin_srgb(bg))
-    d = ImageDraw.Draw(img)
+    """Rasterises the mesh with the game's lighting. Smooth triangles blend per-vertex colours (Gouraud)."""
+    import numpy as np
+    n = SIZE * SS
+    img = np.zeros((n, n, 3), np.float32)
+    img[:, :] = bg
     slots = slot_colors(p, s, bg)
     rim_col = lerp(s, [1, 1, 1], 0.3)
     light = norm([-0.45, 0.7, 0.55])
     half = norm([light[0], light[1], light[2] + 1.0])
     cy, sy = math.cos(yaw), math.sin(yaw)
     cp, sp = math.cos(PITCH), math.sin(PITCH)
-    view = []
-    for x, y, z, _f in mesh["pos"]:
-        x, z = x * cy + z * sy, -x * sy + z * cy           # yaw
-        y, z = y * cp - z * sp, y * sp + z * cp           # pitch
-        view.append((x, y, z))
-    scale = SIZE * SS * 0.42
-    cx = cyy = SIZE * SS / 2
-    tris = []
-    for a, b, c, slot, two in mesh["tri"]:
-        A, B, C = view[a], view[b], view[c]
-        e1 = [B[i] - A[i] for i in range(3)]
-        e2 = [C[i] - A[i] for i in range(3)]
-        n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-        cen = [(A[i] + B[i] + C[i]) / 3 for i in range(3)]
-        to_cam = [-cen[0], -cen[1], CAM_DIST - cen[2]]
-        facing = sum(n[i] * to_cam[i] for i in range(3))
-        if facing <= 0:
-            if not two:
-                continue
-            n = [-x for x in n]
-        tris.append((cen[2], A, B, C, norm(n), slot))
-    tris.sort(key=lambda t: t[0])
-    for depth, A, B, C, n, slot in tris:
-        base = slots[slot]
-        diff = max(0.0, sum(n[i] * light[i] for i in range(3)))
-        if slot == 2:
+
+    def rot(x, y, z):
+        x, z = x * cy + z * sy, -x * sy + z * cy
+        y, z = y * cp - z * sp, y * sp + z * cp
+        return (x, y, z)
+
+    view, vnorm = [], []
+    for v in mesh["pos"]:
+        view.append(rot(v[0], v[1], v[2]))
+        vnorm.append(rot(v[4], v[5], v[6]) if len(v) >= 7 else (0.0, 0.0, 0.0))
+
+    def shade(base, accent, nrm, depth):
+        diff = max(0.0, sum(nrm[i] * light[i] for i in range(3)))
+        if accent:
             col = [x * (0.85 + 0.3 * diff) for x in base]
         else:
-            rim = (1.0 - max(0.0, n[2])) ** 3
-            spec = max(0.0, sum(n[i] * half[i] for i in range(3))) ** 24 * 0.35
+            rim = (1.0 - max(0.0, nrm[2])) ** 3
+            spec = max(0.0, sum(nrm[i] * half[i] for i in range(3))) ** 24 * 0.35
             col = [base[i] * (0.22 + 0.78 * diff) + rim_col[i] * rim * 0.55 + spec for i in range(3)]
             fz = min(max(0.5 + 0.5 * depth, 0.0), 1.0)
             col = [x * (0.6 + 0.4 * fz) for x in col]
-        col = lerp(bg, col, VISIBILITY)
-        pts = []
-        for v in (A, B, C):
-            k = CAM_DIST / (CAM_DIST - v[2])
-            pts.append((cx + v[0] * k * scale, cyy - v[1] * k * scale))
-        d.polygon(pts, fill=lin_srgb(col))
-    return img.resize((SIZE, SIZE), Image.LANCZOS)
+        return lerp(bg, col, VISIBILITY)
+
+    tris = []
+    for t in mesh["tri"]:
+        a, b, c, slot, two = t[:5]
+        smooth = t[5] if len(t) > 5 else 0
+        A, B, C = view[a], view[b], view[c]
+        e1 = [B[i] - A[i] for i in range(3)]
+        e2 = [C[i] - A[i] for i in range(3)]
+        nn = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+        cen = [(A[i] + B[i] + C[i]) / 3 for i in range(3)]
+        to_cam = [-cen[0], -cen[1], CAM_DIST - cen[2]]
+        if sum(nn[i] * to_cam[i] for i in range(3)) <= 0:
+            if not two:
+                continue
+            nn = [-x for x in nn]
+        tris.append((cen[2], (a, b, c), norm(nn), slot, smooth))
+    tris.sort(key=lambda t: t[0])
+
+    scale = n * 0.42
+    for depth, idx, fn, slot, smooth in tris:
+        base, accent = slots[slot], slot == 2
+        pts, cols = [], []
+        for k in idx:
+            v = view[k]
+            kk = CAM_DIST / (CAM_DIST - v[2])
+            pts.append((n / 2 + v[0] * kk * scale, n / 2 - v[1] * kk * scale))
+            if smooth:
+                vn = vnorm[k]
+                if sum(vn[i] * fn[i] for i in range(3)) <= 0:
+                    vn = fn
+                cols.append(shade(base, accent, vn, v[2]))
+        if not smooth:
+            cols = [shade(base, accent, fn, depth)] * 3
+        (x0, y0), (x1, y1), (x2, y2) = pts
+        minx, maxx = int(max(0, math.floor(min(x0, x1, x2)))), int(min(n - 1, math.ceil(max(x0, x1, x2))))
+        miny, maxy = int(max(0, math.floor(min(y0, y1, y2)))), int(min(n - 1, math.ceil(max(y0, y1, y2))))
+        if minx > maxx or miny > maxy:
+            continue
+        den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(den) < 1e-9:
+            continue
+        ys, xs = np.mgrid[miny:maxy + 1, minx:maxx + 1].astype(np.float32) + 0.5
+        w0 = ((y1 - y2) * (xs - x2) + (x2 - x1) * (ys - y2)) / den
+        w1 = ((y2 - y0) * (xs - x2) + (x0 - x2) * (ys - y2)) / den
+        w2 = 1 - w0 - w1
+        m = (w0 >= -1e-4) & (w1 >= -1e-4) & (w2 >= -1e-4)
+        if not m.any():
+            continue
+        c = np.array(cols, np.float32)
+        px = w0[..., None] * c[0] + w1[..., None] * c[1] + w2[..., None] * c[2]
+        region = img[miny:maxy + 1, minx:maxx + 1]
+        region[m] = px[m]
+    lin = np.clip(img, 0, 1)
+    srgb = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
+    out = Image.fromarray((srgb * 255 + 0.5).astype(np.uint8), "RGB")
+    return out.resize((SIZE, SIZE), Image.LANCZOS)
 
 
 def main():
@@ -115,6 +156,11 @@ def main():
     cols = 5
     rows = math.ceil(len(meshes) / cols)
     sheet = Image.new("RGB", (cols * SIZE, rows * (SIZE + 24)), (8, 10, 16))
+    only = set(int(x) for x in sys.argv[4].split(",")) if len(sys.argv) > 4 else None
+    if only:
+        meshes = [m for m in meshes if m["stage"] in only]
+        rows = math.ceil(len(meshes) / cols)
+        sheet = Image.new("RGB", (cols * SIZE, rows * (SIZE + 24)), (8, 10, 16))
     draw = ImageDraw.Draw(sheet)
     for i, m in enumerate(meshes):
         st = stages[m["stage"]]
